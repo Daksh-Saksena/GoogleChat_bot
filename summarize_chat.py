@@ -366,8 +366,11 @@ def handle_clip_request(trigger_message):
         else:
             formatted_time = "Unknown time"
 
-        # Format in italics: _"message content"_ - Name, Time & Date
-        formatted_clip = f'"{quote_text}"\n- {sender_name}, {formatted_time}'
+        # Format in italics: Google Chat formats italics with underscores: _"message content"_
+        # If the quote spans multiple lines, enclose each line with underscores so Google Chat renders italics properly across lines
+        italicized_quote = "\n".join([f'_"{line}"_' if i == 0 and len(quote_text.splitlines()) == 1 else f'_{line}_' for i, line in enumerate(quote_text.splitlines())]) if "\n" in quote_text else f'_"{quote_text}"_'
+
+        formatted_clip = f'{italicized_quote}\n- {sender_name}, {formatted_time}'
 
         post_clip_to_highlights(formatted_clip)
 
