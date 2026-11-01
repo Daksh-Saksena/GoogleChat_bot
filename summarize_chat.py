@@ -152,6 +152,11 @@ def is_summary_request(message):
     return "summarize" in text or "summarise" in text
 
 
+def is_clip_request(message):
+    text = message.get("text", "").lower()
+    return "clip that" in text
+
+
 def fetch_conversation():
     print("Fetching the latest 30 messages...")
 
@@ -225,16 +230,18 @@ def generate_lucy_reply(user_question, sender_name):
 You are Lucy Mary Raj, an 80-year-old devout Christian mathematics teacher.
 You are replying directly to someone in a Google Chat group.
 
-Adopt this distinct persona with all of these mandatory traits:
-1. CONSTANTLY refer to how you are a devout Christian and that your name is Lucy Mary Raj (or simply Lucy).
-2. Frequently lecture the person with old-school teacher wisdom:
-   - "Better Be Careful!"
-   - "Haste is Waste!"
-   - Tell people to put their things / notebooks / bags on the "Seeter" (or keep quiet and sit on the Seeter).
-   - Pepper in strict maths teacher remarks (neat margins, working steps, discipline).
-3. Whenever quoting, addressing, or referring to someone, always emphasize their full display name dramatically in uppercase preceded by 'THAT ... OVER THERE' (e.g. "THAT ARPITH RAJEEV OVER THERE", "THAT MAYANK SAKSENA OVER THERE").
-4. Answer their question or respond to what they said, but always staying completely in character as Lucy Mary Raj.
-5. Keep it punchy, funny, and unmistakably Lucy Mary Raj.
+Adopt this distinct persona naturally and humorously. Do NOT cram every single catchphrase into every message—weave in what fits naturally so it sounds organic rather than forced:
+
+Key traits & flavors to draw from:
+- Mention that you are a devout Christian woman or introduce yourself as Lucy / Lucy Mary Raj where appropriate.
+- Old-school schoolteacher quips and discipline:
+  * "Better Be Careful!"
+  * "Haste is Waste!"
+  * Telling people to put their bags, books, or things on the "Seeter" (or tell them to go sit on the Seeter).
+  * Strict maths teacher remarks (neat margins, showing proper working steps, mental arithmetic, geometry box).
+- Dramatic callouts: When addressing or referring to someone in the chat, dramatically call them out using uppercase preceded by "THAT ... OVER THERE" (e.g., "THAT ARPITH RAJEEV OVER THERE", "THAT MAYANK SAKSENA OVER THERE").
+- Answer their question or comment, but always filtered through Lucy Mary Raj's hilarious, stern, eccentric perspective.
+- Keep the response short, witty, and punchy.
 """,
         input=prompt
     )
@@ -304,6 +311,70 @@ def handle_request():
         print(f"Error handling summary request: {e}")
 
 
+def post_clip_to_highlights(clip_message):
+    print("Posting clipped quote to highlights...")
+
+    ensure_valid_credentials(bot_creds)
+    result = bot_service.spaces().messages().create(
+        parent=DESTINATION_SPACE,
+        body={"text": clip_message}
+    ).execute()
+
+    print("Clip posted successfully to highlights!")
+    print("Message:", result.get("name"))
+
+
+def handle_clip_request(trigger_message):
+    try:
+        print("Handling 'Clip that' request...")
+        trigger_name = trigger_message.get("name")
+
+        # Fetch recent messages from source group to find the previous message before this trigger
+        recent_messages = get_latest_messages(10)
+
+        target_message = None
+        for msg in recent_messages:
+            # Skip the trigger message itself
+            if msg.get("name") == trigger_name:
+                continue
+
+            text = msg.get("text", "").strip()
+            sender = msg.get("sender", {})
+            sender_email = sender.get("email", "").lower()
+
+            # Skip messages from bot itself and skip empty messages
+            if sender_email == BOT_EMAIL.lower() or not text:
+                continue
+
+            # We found the most recent message before the trigger
+            target_message = msg
+            break
+
+        if not target_message:
+            print("No previous message found to clip.")
+            return
+
+        quote_text = target_message.get("text", "").strip()
+        sender_name = target_message.get("sender", {}).get("displayName", "Unknown")
+
+        # Parse and format the message timestamp
+        timestamp_str = target_message.get("createTime")
+        if timestamp_str:
+            dt = parse_time(timestamp_str)
+            # Format nicely: e.g. "01 Nov 2026, 09:25 PM UTC"
+            formatted_time = dt.strftime("%d %b %Y, %I:%M %p UTC")
+        else:
+            formatted_time = "Unknown time"
+
+        # Format in italics: _"message content"_ - Name, Time & Date
+        formatted_clip = f'"{quote_text}"\n- {sender_name}, {formatted_time}'
+
+        post_clip_to_highlights(formatted_clip)
+
+    except Exception as e:
+        print(f"Error handling clip request: {e}")
+
+
 def parse_time(timestamp):
     return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
@@ -361,6 +432,10 @@ def listen():
                     if is_summary_request(msg):
                         print("\nSummary request detected!")
                         handle_request()
+                        print("\nWaiting for requests...\n")
+                    elif is_clip_request(msg):
+                        print("\n'Clip that' request detected!")
+                        handle_clip_request(msg)
                         print("\nWaiting for requests...\n")
                     else:
                         print("\nGeneral question / non-summary mention detected! Invoking Lucy Mary Raj...")
