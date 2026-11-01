@@ -1,5 +1,6 @@
 
 import os
+import re
 import json
 import time
 import threading
@@ -155,6 +156,17 @@ def is_summary_request(message):
 def is_clip_request(message):
     text = message.get("text", "").lower()
     return "clip that" in text
+
+
+def get_clip_count(message):
+    text = message.get("text", "")
+    match = re.search(r"clip that\s+(\d+)", text, re.IGNORECASE)
+    if match:
+        try:
+            return max(1, min(int(match.group(1)), 25))
+        except ValueError:
+            return 1
+    return 1
 
 
 def fetch_conversation():
@@ -326,13 +338,16 @@ def post_clip_to_highlights(clip_message):
 
 def handle_clip_request(trigger_message):
     try:
-        print("Handling 'Clip that' request...")
+        count = get_clip_count(trigger_message)
+        print(f"Handling 'Clip that' request (count={count})...")
         trigger_name = trigger_message.get("name")
 
-        # Fetch recent messages from source group to find the previous message before this trigger
-        recent_messages = get_latest_messages(10)
+        # Fetch recent messages from source group to find previous messages before this trigger
+        # Request enough messages to cover count + trigger message + potential bot replies
+        fetch_limit = max(20, count * 3)
+        recent_messages = get_latest_messages(fetch_limit)
 
-        target_message = None
+        collected_messages = []
         for msg in recent_messages:
             # Skip the trigger message itself
             if msg.get("name") == trigger_name:
@@ -346,33 +361,40 @@ def handle_clip_request(trigger_message):
             if sender_email == BOT_EMAIL.lower() or not text:
                 continue
 
-            # We found the most recent message before the trigger
-            target_message = msg
-            break
+            collected_messages.append(msg)
+            if len(collected_messages) >= count:
+                break
 
-        if not target_message:
-            print("No previous message found to clip.")
+        if not collected_messages:
+            print("No previous messages found to clip.")
             return
 
-        quote_text = target_message.get("text", "").strip()
-        sender_name = target_message.get("sender", {}).get("displayName", "Unknown")
+        # Reverse so they appear in chronological order (oldest to newest)
+        collected_messages.reverse()
 
-        # Parse and format the message timestamp
-        timestamp_str = target_message.get("createTime")
-        if timestamp_str:
-            dt = parse_time(timestamp_str)
-            # Format nicely: e.g. "01 Nov 2026, 09:25 PM UTC"
-            formatted_time = dt.strftime("%d %b %Y, %I:%M %p UTC")
-        else:
-            formatted_time = "Unknown time"
+        clipped_entries = []
+        for msg in collected_messages:
+            quote_text = msg.get("text", "").strip()
+            sender_name = msg.get("sender", {}).get("displayName", "Unknown")
 
-        # Format in italics: Google Chat formats italics with underscores: _"message content"_
-        # If the quote spans multiple lines, enclose each line with underscores so Google Chat renders italics properly across lines
-        italicized_quote = "\n".join([f'_"{line}"_' if i == 0 and len(quote_text.splitlines()) == 1 else f'_{line}_' for i, line in enumerate(quote_text.splitlines())]) if "\n" in quote_text else f'_"{quote_text}"_'
+            timestamp_str = msg.get("createTime")
+            if timestamp_str:
+                dt = parse_time(timestamp_str)
+                formatted_time = dt.strftime("%d %b %Y, %I:%M %p UTC")
+            else:
+                formatted_time = "Unknown time"
 
-        formatted_clip = f'{italicized_quote}\n- {sender_name}, {formatted_time}'
+            # Format each line inside underscores for Google Chat markdown italics
+            lines = quote_text.splitlines()
+            if len(lines) == 1:
+                italicized = f'_"{lines[0]}"_'
+            else:
+                italicized = "\n".join([f'_{line}_' for line in lines])
 
-        post_clip_to_highlights(formatted_clip)
+            clipped_entries.append(f'{italicized}\n- {sender_name}, {formatted_time}')
+
+        final_clip_message = "\n\n".join(clipped_entries)
+        post_clip_to_highlights(final_clip_message)
 
     except Exception as e:
         print(f"Error handling clip request: {e}")
