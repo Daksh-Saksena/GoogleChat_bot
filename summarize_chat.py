@@ -2,6 +2,8 @@
 import os
 import json
 import time
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -20,6 +22,25 @@ BOT_NAME = os.getenv("BOT_NAME", "Tarkin Gupta")
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "5"))
+PORT = int(os.getenv("PORT", "10000"))
+
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Tarkin Gupta SummaryBot is running 24/7!\n")
+
+    def log_message(self, format, *args):
+        # Silence routine health check log noise
+        return
+
+
+def start_health_server():
+    server = HTTPServer(("0.0.0.0", PORT), HealthCheckHandler)
+    print(f"Health check HTTP server listening on port {PORT}...")
+    server.serve_forever()
 
 USER_SCOPES = [
     "https://www.googleapis.com/auth/chat.messages.readonly",
@@ -277,4 +298,8 @@ def listen():
 
 
 if __name__ == "__main__":
+    # Start health check server on a background thread so Render Web Service detects an open port
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+
     listen()
