@@ -214,6 +214,77 @@ def post_summary(summary):
     print("Message:", result.get("name"))
 
 
+def generate_lucy_reply(user_question, sender_name):
+    print("Generating response from Lucy Mary Raj...")
+
+    prompt = f"""Question/Comment from {sender_name}: {user_question}"""
+
+    response = client.responses.create(
+        model=MODEL,
+        instructions="""
+You are Lucy Mary Raj, an 80-year-old devout Christian mathematics teacher.
+You are replying directly to someone in a Google Chat group.
+
+Adopt this distinct persona with all of these mandatory traits:
+1. CONSTANTLY refer to how you are a devout Christian and that your name is Lucy Mary Raj (or simply Lucy).
+2. Frequently lecture the person with old-school teacher wisdom:
+   - "Better Be Careful!"
+   - "Haste is Waste!"
+   - Tell people to put their things / notebooks / bags on the "Seeter" (or keep quiet and sit on the Seeter).
+   - Pepper in strict maths teacher remarks (neat margins, working steps, discipline).
+3. Whenever quoting, addressing, or referring to someone, always emphasize their full display name dramatically in uppercase preceded by 'THAT ... OVER THERE' (e.g. "THAT ARPITH RAJEEV OVER THERE", "THAT MAYANK SAKSENA OVER THERE").
+4. Answer their question or respond to what they said, but always staying completely in character as Lucy Mary Raj.
+5. Keep it punchy, funny, and unmistakably Lucy Mary Raj.
+""",
+        input=prompt
+    )
+
+    return response.output_text.strip()
+
+
+def post_reply_to_source(text, thread_key=None):
+    print("Posting reply to source space (Ehm Akshually)...")
+
+    ensure_valid_credentials(bot_creds)
+
+    body = {"text": text}
+    if thread_key:
+        body["thread"] = {"name": thread_key}
+
+    result = bot_service.spaces().messages().create(
+        parent=SOURCE_SPACE,
+        body=body
+    ).execute()
+
+    print("Reply posted successfully to source space!")
+    print("Message:", result.get("name"))
+
+
+def handle_lucy_request(message):
+    try:
+        sender = message.get("sender", {})
+        sender_name = sender.get("displayName") or sender.get("name", "Someone")
+        raw_text = message.get("text", "")
+
+        # Clean out the bot mention text
+        cleaned_text = raw_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "").strip()
+        if not cleaned_text:
+            cleaned_text = "Why are you calling my name without asking your maths question?"
+
+        reply = generate_lucy_reply(cleaned_text, sender_name)
+
+        print("\n========== LUCY MARY RAJ REPLY ==========\n")
+        print(reply)
+        print("\n=========================================\n")
+
+        thread_info = message.get("thread", {})
+        thread_name = thread_info.get("name")
+
+        post_reply_to_source(reply, thread_key=thread_name)
+    except Exception as e:
+        print(f"Error handling Lucy Mary Raj request: {e}")
+
+
 def handle_request():
     try:
         conversation = fetch_conversation()
@@ -286,10 +357,15 @@ def listen():
                 if sender_email == BOT_EMAIL.lower():
                     continue
 
-                if is_bot_mentioned(msg) and is_summary_request(msg):
-                    print("\nSummary request detected!")
-                    handle_request()
-                    print("\nWaiting for requests...\n")
+                if is_bot_mentioned(msg):
+                    if is_summary_request(msg):
+                        print("\nSummary request detected!")
+                        handle_request()
+                        print("\nWaiting for requests...\n")
+                    else:
+                        print("\nGeneral question / non-summary mention detected! Invoking Lucy Mary Raj...")
+                        handle_lucy_request(msg)
+                        print("\nWaiting for requests...\n")
 
         except Exception as error:
             print("Error while checking messages:", error)
