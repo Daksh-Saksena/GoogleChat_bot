@@ -161,8 +161,8 @@ def is_bot_mentioned(message, recent_messages=None):
     if f"@{BOT_NAME.lower()}" in text or BOT_NAME.lower() in text:
         return True
 
-    # Check for "Sonny" trigger word (e.g. "Sonny clip that", "Sonny do this", "@sonny")
-    if bool(re.search(r"\bsonny\b", text)):
+    # Check for "Sonny" or "Sunny" trigger word (e.g. "Sonny clip that", "Sunny gm", "sunny bye bye")
+    if bool(re.search(r"\b(sonny|sunny)\b", text)):
         return True
 
     quoted_metadata = message.get("quotedMessageMetadata") or {}
@@ -201,6 +201,37 @@ def is_bot_mentioned(message, recent_messages=None):
                 break
 
     return False
+
+
+SLEEP_FILE = "bot_sleep_state.txt"
+
+
+def is_bot_sleeping():
+    if os.path.exists(SLEEP_FILE):
+        try:
+            with open(SLEEP_FILE, "r") as f:
+                return f.read().strip() == "sleeping"
+        except Exception:
+            return False
+    return False
+
+
+def set_bot_sleeping(sleeping: bool):
+    try:
+        with open(SLEEP_FILE, "w") as f:
+            f.write("sleeping" if sleeping else "awake")
+    except Exception as e:
+        print(f"Error saving sleep state: {e}")
+
+
+def is_sleep_command(message):
+    text = message.get("text", "").lower()
+    return bool(re.search(r"\bbye\s*bye\b", text))
+
+
+def is_wake_command(message):
+    text = message.get("text", "").lower()
+    return bool(re.search(r"\bgm\b|\bgood\s*morning\b|\bwake\s*up\b", text))
 
 
 MODE_FILE = "bot_persona_mode.txt"
@@ -1162,6 +1193,33 @@ def listen():
                     continue
 
                 if is_bot_mentioned(msg, messages):
+                    # Check wake-up command first (works even if sleeping)
+                    if is_wake_command(msg):
+                        print("\n'Sunny gm' / wake-up command detected! Waking bot up...")
+                        set_bot_sleeping(False)
+                        post_reply_to_source(
+                            "gm gng! Sonny is back online ☀️",
+                            source_message=msg,
+                        )
+                        print("\nWaiting for requests...\n")
+                        continue
+
+                    # If bot is currently sleeping, ignore all other commands/mentions
+                    if is_bot_sleeping():
+                        print("Bot is asleep. Ignoring mention (say 'Sunny gm' to wake up).")
+                        continue
+
+                    # Check sleep command
+                    if is_sleep_command(msg):
+                        print("\n'Sunny bye bye' command detected! Putting bot to sleep...")
+                        set_bot_sleeping(True)
+                        post_reply_to_source(
+                            "bye bye gng 💤 Sonny is shutting off. Say 'Sunny gm' to wake me back up!",
+                            source_message=msg,
+                        )
+                        print("\nWaiting for requests...\n")
+                        continue
+
                     if is_summary_request(msg):
                         print("\nSummary request detected!")
                         handle_request()
