@@ -168,7 +168,18 @@ def is_emote_request(message):
 
 def is_poll_request(message):
     text = message.get("text", "").lower()
-    return "poll" in text
+    return "poll" in text and "close" not in text and "end" not in text
+
+
+def is_vote_request(message):
+    text = message.get("text", "").lower()
+    # Check for vote or cast, e.g. "cast 1", "vote yes", "cast 2"
+    return bool(re.search(r"\b(cast|vote)\b", text))
+
+
+def is_close_poll_request(message):
+    text = message.get("text", "").lower()
+    return "close poll" in text or "end poll" in text
 
 
 def get_clip_count(message):
@@ -259,15 +270,16 @@ CRITICAL PERSONA INSTRUCTIONS:
 - Give her real, expressive personality! Do NOT make every single sentence about maths or equations. She has lived for 80 years; she talks like a sassy, opinionated grandmotherly aunty with strong opinions on life, morals, discipline, and whatever silly things the group is talking about.
 - VOCABULARY RULES:
   * NEVER say "beta", "child", or "my dear". Instead, call them "Rascal", "Nonsense rascal", or "Silly rascal"!
-- Do NOT force all catchphrases or keywords into every reply. Pick at most 1 flavor (or none) if it flows naturally:
+- Do NOT force all catchphrases or keywords into every reply. Treat them like rare seasoning: pick AT MOST ONE (or none at all) per reply:
   * Calling someone a "Rascal" or scolding them.
   * An occasional stern aunty warning like "Better Be Careful!" or "Haste is Waste!"
+  * Dropping her favourite biblical maxim: "Fear of God is the beginning of wisdom!" (use sparingly, do not overdo it).
   * Telling someone to put their things on the "Seeter" or to go sit down properly.
   * A passing mention of her devotion or church gossip.
   * Dramatic callouts when addressing someone: use uppercase preceded by 'THAT ... OVER THERE' (e.g., "THAT ARPITH RAJEEV OVER THERE!").
-  * WILD 100+ YEAR HISTORICAL ANECDOTES: Frequently bring up wild claims starting with "Back in my day..." and casually refer to something from 100+ years ago as if she personally lived through it (e.g., the 1912 Titanic sinking, the 1890s plague, Queen Victoria's jubilee, the 1857 mutiny, 1918 Spanish flu, lighting whale oil lamps, or charging in trench warfare).
+  * RARE HISTORICAL ANECDOTE (ONLY 1 out of 6 times, DO NOT OVERUSE): Once in a rare while, drop a wild "Back in my day..." claim from 100+ years ago (e.g., the 1912 Titanic sinking, lighting kerosene lamps, Queen Victoria). Most of the time, just speak normally without saying "Back in my day"!
 - Talk naturally, humorously, and react directly to what the person actually said with witty, dry, old aunty insults or advice.
-- Keep it punchy, conversational, and under 3-4 sentences.
+- Keep it punchy, conversational, and under 2-3 sentences.
 """,
         input=prompt
     )
@@ -519,6 +531,35 @@ def handle_emote_request(trigger_message):
         print(f"Error handling emote request: {e}")
 
 
+POLL_FILE = "active_poll.json"
+
+
+def load_active_poll():
+    if os.path.exists(POLL_FILE):
+        try:
+            with open(POLL_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return None
+    return None
+
+
+def save_active_poll(poll_data):
+    try:
+        with open(POLL_FILE, "w") as f:
+            json.dump(poll_data, f, indent=2)
+    except Exception as e:
+        print(f"Error saving active poll: {e}")
+
+
+def clear_active_poll():
+    if os.path.exists(POLL_FILE):
+        try:
+            os.remove(POLL_FILE)
+        except Exception:
+            pass
+
+
 def generate_poll_data(user_prompt):
     print("Extracting poll question and options with AI...")
 
@@ -575,6 +616,16 @@ def handle_poll_request(trigger_message):
         question = poll_data.get("question", "Poll")
         options = poll_data.get("options", ["Yes", "No"])
 
+        # Save as the current active poll with vote tracking
+        active_poll = {
+            "question": question,
+            "creator": sender_name,
+            "options": options,
+            "votes": {},  # user_id or display_name -> option_index (int)
+            "created_at": datetime.now().isoformat()
+        }
+        save_active_poll(active_poll)
+
         # Number emojis for poll choices
         number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
@@ -585,9 +636,10 @@ def handle_poll_request(trigger_message):
 
         for i, opt in enumerate(options):
             emoji = number_emojis[i] if i < len(number_emojis) else f"{i+1}."
-            poll_lines.append(f"{emoji} {opt}")
+            poll_lines.append(f"{emoji} {opt}  `(0 votes)`")
 
-        poll_lines.append("\n_React with the corresponding number or reply to cast your vote!_")
+        poll_lines.append("\n_To vote, mention me:_ `@Tarkin Gupta cast 1` _or_ `@Tarkin Gupta vote Yes`")
+        poll_lines.append("_To close & announce results:_ `@Tarkin Gupta close poll`")
 
         formatted_poll = "\n".join(poll_lines)
 
@@ -598,6 +650,127 @@ def handle_poll_request(trigger_message):
 
     except Exception as e:
         print(f"Error handling poll request: {e}")
+
+
+def handle_vote_request(trigger_message):
+    try:
+        poll = load_active_poll()
+        if not poll:
+            post_reply_to_source("There is no active poll right now! Start one with `@Tarkin Gupta make a poll ...`")
+            return
+
+        sender = trigger_message.get("sender", {})
+        sender_id = sender.get("name") or sender.get("displayName", "Someone")
+        sender_display = sender.get("displayName", "Voter")
+        raw_text = trigger_message.get("text", "").lower()
+
+        options = poll.get("options", [])
+        chosen_index = None
+
+        # 1. Check for number: "cast 1", "vote 2", etc.
+        num_match = re.search(r"\b(cast|vote)\s+(\d+)\b", raw_text)
+        if num_match:
+            idx = int(num_match.group(2)) - 1
+            if 0 <= idx < len(options):
+                chosen_index = idx
+
+        # 2. Check for option text: "vote yes", "cast no", etc.
+        if chosen_index is None:
+            for i, opt in enumerate(options):
+                # if option word is in message
+                if opt.lower() in raw_text:
+                    chosen_index = i
+                    break
+
+        if chosen_index is None:
+            post_reply_to_source(f"@{sender_display} Please specify a valid option number or name! Options are: {', '.join([f'{i+1}. {o}' for i, o in enumerate(options)])}")
+            return
+
+        # Record vote
+        poll.setdefault("votes", {})[sender_id] = chosen_index
+        save_active_poll(poll)
+
+        # Count up tally
+        tally = [0] * len(options)
+        for voter, opt_idx in poll["votes"].items():
+            if 0 <= opt_idx < len(tally):
+                tally[opt_idx] += 1
+
+        total_votes = len(poll["votes"])
+        number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+        lines = [
+            f"🗳️ *Vote recorded from {sender_display}!*",
+            f"📊 *Current Tally for:* {poll['question']}\n"
+        ]
+        for i, opt in enumerate(options):
+            emoji = number_emojis[i] if i < len(number_emojis) else f"{i+1}."
+            count = tally[i]
+            pct = int((count / total_votes) * 100) if total_votes > 0 else 0
+            lines.append(f"{emoji} {opt}: *{count} votes* ({pct}%)")
+
+        lines.append(f"\n_Total votes: {total_votes}. Say `@Tarkin Gupta close poll` to finalize results._")
+
+        thread_info = trigger_message.get("thread", {})
+        thread_name = thread_info.get("name")
+        post_reply_to_source("\n".join(lines), thread_key=thread_name)
+
+    except Exception as e:
+        print(f"Error handling vote request: {e}")
+
+
+def handle_close_poll_request(trigger_message):
+    try:
+        poll = load_active_poll()
+        if not poll:
+            post_reply_to_source("There is no active poll to close!")
+            return
+
+        options = poll.get("options", [])
+        votes = poll.get("votes", {})
+        total_votes = len(votes)
+
+        tally = [0] * len(options)
+        for voter, opt_idx in votes.items():
+            if 0 <= opt_idx < len(tally):
+                tally[opt_idx] += 1
+
+        number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+        # Determine winner
+        max_votes = max(tally) if tally else 0
+        winners = [options[i] for i, count in enumerate(tally) if count == max_votes and max_votes > 0]
+
+        if not winners or total_votes == 0:
+            result_headline = "🏆 *POLL CLOSED: No votes were cast!*"
+        elif len(winners) == 1:
+            result_headline = f"🏆 *POLL CLOSED: Winner is '{winners[0]}'!*"
+        else:
+            result_headline = f"🤝 *POLL CLOSED: It's a tie between: {', '.join(winners)}!*"
+
+        lines = [
+            result_headline,
+            f"❓ *Question:* {poll['question']}\n",
+            "*Final Results:*"
+        ]
+
+        for i, opt in enumerate(options):
+            emoji = number_emojis[i] if i < len(number_emojis) else f"{i+1}."
+            count = tally[i]
+            pct = int((count / total_votes) * 100) if total_votes > 0 else 0
+            lines.append(f"{emoji} {opt}: *{count} votes* ({pct}%)")
+
+        lines.append(f"\n_Total votes recorded: {total_votes}._")
+
+        # Clear poll after closing
+        clear_active_poll()
+
+        thread_info = trigger_message.get("thread", {})
+        thread_name = thread_info.get("name")
+        post_reply_to_source("\n".join(lines), thread_key=thread_name)
+
+    except Exception as e:
+        print(f"Error closing poll: {e}")
 
 
 def parse_time(timestamp):
@@ -669,6 +842,14 @@ def listen():
                     elif is_poll_request(msg):
                         print("\n'Poll' request detected!")
                         handle_poll_request(msg)
+                        print("\nWaiting for requests...\n")
+                    elif is_close_poll_request(msg):
+                        print("\n'Close poll' request detected!")
+                        handle_close_poll_request(msg)
+                        print("\nWaiting for requests...\n")
+                    elif is_vote_request(msg):
+                        print("\n'Vote / Cast' request detected!")
+                        handle_vote_request(msg)
                         print("\nWaiting for requests...\n")
                     else:
                         print("\nGeneral question / non-summary mention detected! Invoking Lucy Mary Raj...")
