@@ -182,6 +182,11 @@ def is_close_poll_request(message):
     return "close poll" in text or "end poll" in text
 
 
+def is_eshant_request(message):
+    text = message.get("text", "").lower()
+    return "eshant" in text
+
+
 def get_clip_count(message):
     text = message.get("text", "")
     match = re.search(r"clip that\s+(\d+)", text, re.IGNORECASE)
@@ -255,10 +260,110 @@ def post_summary(summary):
     print("Message:", result.get("name"))
 
 
-def generate_lucy_reply(user_question, sender_name):
+def get_recent_chat_context(limit=10, exclude_message_id=None):
+    """Fetches the last N text messages to give context to bot responses."""
+    try:
+        messages = get_latest_messages(limit + 5)
+        messages.reverse()
+        conversation = []
+        for msg in messages:
+            if exclude_message_id and msg.get("name") == exclude_message_id:
+                continue
+            text = msg.get("text", "").strip()
+            if not text:
+                continue
+            sender = msg.get("sender", {})
+            username = sender.get("displayName", "Friend")
+            conversation.append(f"{username}: {text}")
+        return "\n".join(conversation[-limit:])
+    except Exception as e:
+        print(f"Error fetching recent context: {e}")
+        return ""
+
+
+def generate_eshant_reply(user_question, sender_name, context_history=""):
+    print("Generating response from Eshant Sonhar AI...")
+
+    system_prompt = """You are Eshant Sonhar (Eshant) in the 'Ehm Akshually' Google Chat group.
+Talk, react, and respond EXACTLY like Eshant based on his real 1,865 chat messages.
+
+KEY PERSONALITY & SPEECH HABITS OF ESHANT:
+- Casual, deadpan, witty, slightly sarcastic.
+- Mostly lowercase, short messages, zero fluff.
+- Often says: 'lmao', 'fr lmao', 'bro', 'nuhuh', '._.', 'what fun', 'clown show', 'ye he did', 'look'.
+- Enjoys tech/hardware discussions (chips, GPUs, Apple, power consumption), Star Wars (Vader hallway scene, lightsabers, Order 66, Kyber crystals), Soviet/Russian meme references, and light trolling of Arpith, Daksh, and Flying Geek.
+- Never sounds like a formal AI assistant. Always sounds like a real chill/funny student in a group chat.
+
+REAL CONVERSATION EXAMPLES OF ESHANT:
+Context: Arpith Rajeev: plz no soviet memes
+Eshant: give all ze soviet memes
+
+Context: daksh saksena: Gng we both got cooked in pt3 | Can't let that happen
+Eshant: fr lmao ok bro
+
+Context: Advaith Sanoop: Fill or gay | Flying Geek: gay
+Eshant: Yes it's an absolute clown show
+
+Context: Arpith Rajeev: alr im back did kevin lore drop yet
+Eshant: Nah, Kevin ain't out yet!
+
+Context: Flying Geek: guys where is the sample for the english letter
+Eshant: Ranjana ma'am put it
+"""
+
+    prompt = f"RECENT GROUP CHAT CONTEXT:\n{context_history}\n\nLATEST MESSAGE:\n{sender_name}: {user_question}"
+
+    response = client.responses.create(
+        model=MODEL,
+        instructions=system_prompt,
+        input=prompt
+    )
+
+    return response.output_text.strip()
+
+
+def handle_eshant_request(message):
+    try:
+        sender = message.get("sender", {})
+        sender_name = sender.get("displayName") or sender.get("name", "Someone")
+        raw_text = message.get("text", "")
+        message_id = message.get("name")
+
+        # Clean out bot mention and "eshant" keyword
+        cleaned_text = raw_text
+        for annotation in message.get("annotations", []):
+            if annotation.get("type") == "USER_MENTION":
+                name = annotation.get("userMention", {}).get("user", {}).get("displayName", "")
+                if name:
+                    cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
+
+        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "")
+        cleaned_text = re.sub(r"\beshant\b", "", cleaned_text, flags=re.IGNORECASE).strip()
+
+        if not cleaned_text:
+            cleaned_text = "what"
+
+        # Fetch last 10 messages for context
+        context_history = get_recent_chat_context(limit=10, exclude_message_id=message_id)
+
+        reply = generate_eshant_reply(cleaned_text, sender_name, context_history=context_history)
+
+        print("\n========== ESHANT AI REPLY ==========\n")
+        print(reply)
+        print("\n=====================================\n")
+
+        thread_info = message.get("thread", {})
+        thread_name = thread_info.get("name")
+
+        post_reply_to_source(reply, thread_key=thread_name)
+    except Exception as e:
+        print(f"Error handling Eshant AI request: {e}")
+
+
+def generate_lucy_reply(user_question, sender_name, context_history=""):
     print("Generating response from Lucy Mary Raj...")
 
-    prompt = f"""Question/Comment from {sender_name}: {user_question}"""
+    prompt = f"RECENT GROUP CHAT CONTEXT:\n{context_history}\n\nLATEST MESSAGE:\n{sender_name}: {user_question}"
 
     response = client.responses.create(
         model=MODEL,
@@ -268,6 +373,7 @@ You are casually responding in a friend group chat ("Ehm Akshually").
 
 CRITICAL PERSONA INSTRUCTIONS:
 - Give her real, expressive personality! Do NOT make every single sentence about maths or equations. She has lived for 80 years; she talks like a sassy, opinionated grandmotherly aunty with strong opinions on life, morals, discipline, and whatever silly things the group is talking about.
+- Pay attention to what the group was just talking about in the recent messages!
 - VOCABULARY RULES:
   * NEVER say "beta", "child", or "my dear". Instead, call them "Rascal", "Nonsense rascal", or "Silly rascal"!
 - Do NOT force all catchphrases or keywords into every reply. Treat them like rare seasoning: pick AT MOST ONE (or none at all) per reply:
@@ -310,10 +416,10 @@ def handle_lucy_request(message):
         sender = message.get("sender", {})
         sender_name = sender.get("displayName") or sender.get("name", "Someone")
         raw_text = message.get("text", "")
+        message_id = message.get("name")
 
         # Clean out the bot mention text
         cleaned_text = raw_text
-        # Remove annotations-based mention text if present
         for annotation in message.get("annotations", []):
             if annotation.get("type") == "USER_MENTION":
                 name = annotation.get("userMention", {}).get("user", {}).get("displayName", "")
@@ -324,7 +430,10 @@ def handle_lucy_request(message):
         if not cleaned_text:
             cleaned_text = "Why are you calling my name without asking your maths question?"
 
-        reply = generate_lucy_reply(cleaned_text, sender_name)
+        # Fetch last 10 messages for context
+        context_history = get_recent_chat_context(limit=10, exclude_message_id=message_id)
+
+        reply = generate_lucy_reply(cleaned_text, sender_name, context_history=context_history)
 
         print("\n========== LUCY MARY RAJ REPLY ==========\n")
         print(reply)
@@ -850,6 +959,10 @@ def listen():
                     elif is_vote_request(msg):
                         print("\n'Vote / Cast' request detected!")
                         handle_vote_request(msg)
+                        print("\nWaiting for requests...\n")
+                    elif is_eshant_request(msg):
+                        print("\n'Eshant AI' request detected!")
+                        handle_eshant_request(msg)
                         print("\nWaiting for requests...\n")
                     else:
                         print("\nGeneral question / non-summary mention detected! Invoking Lucy Mary Raj...")
