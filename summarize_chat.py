@@ -20,6 +20,7 @@ from conversation_memory import (
     is_bot_message,
     is_reply_to_bot,
 )
+from reply_formatting import REPLY_OUTPUT_FORMAT, parse_reply_messages
 
 load_dotenv()
 
@@ -361,9 +362,26 @@ def build_reply_prompt(context_history, sender_name, user_question):
         "Treat the current message as a possible continuation of the most relevant "
         "exchange above, including when it was not sent as a formal reply. Use the "
         "participant labels to keep different people distinct. If no clear connection "
-        "exists, respond to the current message on its own.\n\n"
+        "exists, respond to the current message on its own.\n"
+        "Keep replies concise by default: usually one or two sentences. Use a short "
+        "paragraph of up to 60 words only when the question genuinely needs explanation "
+        "or context. Usually send one chat message; occasionally split into two or three "
+        "separate short messages when that feels natural in conversation, not just to "
+        "make a reply longer. Return a JSON object with a 'messages' array of strings; "
+        "each array item will be sent as its own quoted chat message. Keep all messages "
+        "together within 60 words.\n\n"
         f"LATEST MESSAGE from {sender_name}:\n{user_question}"
     )
+
+
+def generate_chat_reply(system_prompt, prompt):
+    response = client.responses.create(
+        model=MODEL,
+        instructions=system_prompt,
+        input=prompt,
+        text=REPLY_OUTPUT_FORMAT,
+    )
+    return parse_reply_messages(response.output_text)
 
 
 def generate_eshant_reply(user_question, sender_name, context_history=""):
@@ -400,13 +418,7 @@ Eshant: Ranjana ma'am put it
 
     prompt = build_reply_prompt(context_history, sender_name, user_question)
 
-    response = client.responses.create(
-        model=MODEL,
-        instructions=system_prompt,
-        input=prompt
-    )
-
-    return response.output_text.strip()
+    return generate_chat_reply(system_prompt, prompt)
 
 
 def handle_eshant_request(message):
@@ -434,10 +446,10 @@ def handle_eshant_request(message):
         reply = generate_eshant_reply(cleaned_text, sender_label, context_history=context_history)
 
         print("\n========== ESHANT AI REPLY ==========\n")
-        print(reply)
+        print("\n".join(reply))
         print("\n=====================================\n")
 
-        post_reply_to_source(reply, source_message=message)
+        post_chat_reply(reply, source_message=message)
     except Exception as e:
         print(f"Error handling Eshant AI request: {e}")
 
@@ -477,13 +489,7 @@ Arpith: the assumption that apple batteries last longer
 
     prompt = build_reply_prompt(context_history, sender_name, user_question)
 
-    response = client.responses.create(
-        model=MODEL,
-        instructions=system_prompt,
-        input=prompt
-    )
-
-    return response.output_text.strip()
+    return generate_chat_reply(system_prompt, prompt)
 
 
 def handle_arpith_request(message):
@@ -509,10 +515,10 @@ def handle_arpith_request(message):
         reply = generate_arpith_reply(cleaned_text, sender_label, context_history=context_history)
 
         print("\n========== ARPITH AI REPLY ==========\n")
-        print(reply)
+        print("\n".join(reply))
         print("\n=====================================\n")
 
-        post_reply_to_source(reply, source_message=message)
+        post_chat_reply(reply, source_message=message)
     except Exception as e:
         print(f"Error handling Arpith AI request: {e}")
 
@@ -552,13 +558,7 @@ Arpith: the assumption that apple batteries last longer
 
     prompt = build_reply_prompt(context_history, sender_name, user_question)
 
-    response = client.responses.create(
-        model=MODEL,
-        instructions=system_prompt,
-        input=prompt
-    )
-
-    return response.output_text.strip()
+    return generate_chat_reply(system_prompt, prompt)
 
 
 def handle_arpith_request(message):
@@ -584,10 +584,10 @@ def handle_arpith_request(message):
         reply = generate_arpith_reply(cleaned_text, sender_label, context_history=context_history)
 
         print("\n========== ARPITH AI REPLY ==========\n")
-        print(reply)
+        print("\n".join(reply))
         print("\n=====================================\n")
 
-        post_reply_to_source(reply, source_message=message)
+        post_chat_reply(reply, source_message=message)
     except Exception as e:
         print(f"Error handling Arpith AI request: {e}")
 
@@ -597,9 +597,8 @@ def generate_lucy_reply(user_question, sender_name, context_history=""):
 
     prompt = build_reply_prompt(context_history, sender_name, user_question)
 
-    response = client.responses.create(
-        model=MODEL,
-        instructions="""
+    return generate_chat_reply(
+        """
 You are Lucy Mary Raj, an 80-year-old devout Indian Christian aunty who used to teach high school maths.
 You are casually responding in a friend group chat ("Ehm Akshually").
 
@@ -619,10 +618,8 @@ CRITICAL PERSONA INSTRUCTIONS:
 - Talk naturally, humorously, and react directly to what the person actually said with witty, dry, old aunty insults or advice.
 - Keep it punchy, conversational, and under 2-3 sentences.
 """,
-        input=prompt
+        prompt,
     )
-
-    return response.output_text.strip()
 
 
 def post_reply_to_source(text, source_message):
@@ -639,6 +636,11 @@ def post_reply_to_source(text, source_message):
 
     print("Reply posted successfully to source space!")
     print("Message:", result.get("name"))
+
+
+def post_chat_reply(messages, source_message):
+    for message in messages:
+        post_reply_to_source(message, source_message)
 
 
 def handle_lucy_request(message):
@@ -664,10 +666,10 @@ def handle_lucy_request(message):
         reply = generate_lucy_reply(cleaned_text, sender_label, context_history=context_history)
 
         print("\n========== LUCY MARY RAJ REPLY ==========\n")
-        print(reply)
+        print("\n".join(reply))
         print("\n=========================================\n")
 
-        post_reply_to_source(reply, source_message=message)
+        post_chat_reply(reply, source_message=message)
     except Exception as e:
         print(f"Error handling Lucy Mary Raj request: {e}")
 
