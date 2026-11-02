@@ -439,29 +439,27 @@ def search_tenor_gif(query):
 
 
 def generate_emote_query(conversation):
-    print("Selecting outrageous GIF query based on conversation...")
+    print("Selecting unhinged / Gen Alpha / dark humor GIF query based on conversation...")
 
     response = client.responses.create(
         model=MODEL,
         instructions="""
-You are an expert at meme culture and dramatic comedy.
-Read the recent chat messages and determine the single funniest, most outrageous GIF reaction.
+You are an expert at internet brainrot, Gen Alpha culture, edgy dark humour, shitposting, and unhinged reaction memes.
+Read the recent group chat messages and pick the most chaotic, unhinged, dark, or hilarious meme reaction GIF.
 
-Output ONLY a 2 to 4 word search phrase that would find the absolute perfect, hilarious, dramatic, or unhinged GIF on Tenor/Giphy.
-Examples of good search phrases:
-- dramatic gasp soap opera
-- mind blown explosion
-- crying laughing hysterically
-- facepalm dissafection
-- screaming chaos run away
-- smug nodding sunglasses
+AVOID: Boring corporate memes, generic cartoon smiles, basic sitcom reactions.
+PREFER:
+- Dark humor / unhinged reactions: e.g. "thousand yard stare", "walt falling to the ground", "homelander blank stare", "patrick bateman smile", "arthur fleck stairs", "side eye dog", "shocked live leak", "willem dafoe looking up", "kurt angle 1000 yard stare", "skeleton disintegrating", "skull emoji spinning"
+- Gen Alpha / Brainrot meme culture: e.g. "mewing bye bye", "sigma chad squint", "subway surfers gameplay", "cat blank stare staring", "brainrot screaming", "gigachad smile", "caseoh rage", "speed barking"
+- Bizarre chaotic funny: e.g. "cursed cat screaming", "dramatic Indian soap opera edit", "spinning fish low quality", "awkward stare into soul"
 
-Output NOTHING else except the search phrase.
+Output ONLY a 2 to 4 word search query tailored to the conversation that will fetch an iconic, hilarious, slightly unhinged GIF on Tenor.
+Do NOT include quotes, punctuation, or any explanation.
 """,
         input=conversation
     )
 
-    query = response.output_text.strip().replace('"', '').replace('.', '')
+    query = response.output_text.strip().replace('"', '').replace('.', '').replace("'", "")
     return query
 
 
