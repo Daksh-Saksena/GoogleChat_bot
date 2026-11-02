@@ -286,7 +286,15 @@ def handle_lucy_request(message):
         raw_text = message.get("text", "")
 
         # Clean out the bot mention text
-        cleaned_text = raw_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "").strip()
+        cleaned_text = raw_text
+        # Remove annotations-based mention text if present
+        for annotation in message.get("annotations", []):
+            if annotation.get("type") == "USER_MENTION":
+                name = annotation.get("userMention", {}).get("user", {}).get("displayName", "")
+                if name:
+                    cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
+
+        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "").strip()
         if not cleaned_text:
             cleaned_text = "Why are you calling my name without asking your maths question?"
 

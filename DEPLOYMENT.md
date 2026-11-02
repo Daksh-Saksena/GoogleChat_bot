@@ -24,7 +24,7 @@ The following files contain private tokens and credentials and **are excluded fr
    ```
 2. Create a **Private** repository on GitHub or GitLab and push your code:
    ```bash
-   git remote add origin <YOUR_REPO_URL>
+   git remote add origin https://github.com/Daksh-Saksena/GoogleChat_bot
    git branch -M main
    git push -u origin main
    ```
