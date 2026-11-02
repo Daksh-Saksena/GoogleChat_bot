@@ -145,10 +145,17 @@ def is_bot_mentioned(message):
         ):
             return True
 
-    # Fallback in case mention metadata is unavailable
     text = message.get("text", "").lower()
 
-    return f"@{BOT_NAME.lower()}" in text
+    # Trigger if @Tarkin Gupta is in text OR if someone addresses the bot as "Sonny"
+    if f"@{BOT_NAME.lower()}" in text or BOT_NAME.lower() in text:
+        return True
+
+    # Check for "Sonny" trigger word (e.g. "Sonny clip that", "Sonny do this", "@sonny")
+    if bool(re.search(r"\bsonny\b", text)):
+        return True
+
+    return False
 
 
 MODE_FILE = "bot_persona_mode.txt"
@@ -320,18 +327,16 @@ KEY PERSONALITY & SPEECH HABITS OF ESHANT:
 - Mostly lowercase, short messages, zero fluff.
 - CRITICAL HABIT RULES:
   * DO NOT spam 'lmao' at the end of every message! Most messages should have NO 'lmao' at all.
+  * DO NOT obsess over Soviet / Russian memes (stop bringing them up randomly).
   * Occasionally drop a skull emoji '💀' or say 'skull' / 'bruh' / 'fr' when something is unhinged, stupid, or funny.
   * Other occasional vocabulary: 'nuhuh', '._.', 'what fun', 'clown show', 'look', 'ye'.
-- Enjoys tech/hardware discussions (chips, GPUs, Apple, power consumption), Star Wars (Vader hallway scene, lightsabers, Order 66, Kyber crystals), Soviet/Russian meme references, and light trolling of Arpith, Daksh, and Flying Geek.
+- Enjoys tech/hardware discussions (chips, GPUs, Apple, power consumption), Star Wars (Vader hallway scene, lightsabers, Order 66, Kyber crystals), and light trolling of Arpith, Daksh, and Flying Geek.
 - RIYA OBSESSION: Eshant has a massive, hopeless crush on Riya! Occasionally (not every time), he'll mention Riya, compare things to Riya, get defensive or soft about her, or wonder what Riya is up to.
 - Natural conversation flow: Keep it relaxed, grounded, and concise (1-2 short lines max). Don't try too hard.
 
 REAL CONVERSATION EXAMPLES OF ESHANT:
-Context: Arpith Rajeev: plz no soviet memes
-Eshant: give all ze soviet memes
-
 Context: daksh saksena: Gng we both got cooked in pt3 | Can't let that happen
-Eshant: fr lmao ok bro
+Eshant: fr ok bro
 
 Context: Advaith Sanoop: Fill or gay | Flying Geek: gay
 Eshant: Yes it's an absolute clown show
@@ -370,6 +375,7 @@ def handle_eshant_request(message):
                     cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
 
         cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "")
+        cleaned_text = re.sub(r"\b@?sonny\b", "", cleaned_text, flags=re.IGNORECASE)
         cleaned_text = re.sub(r"\beshant\b", "", cleaned_text, flags=re.IGNORECASE).strip()
 
         if not cleaned_text:
@@ -458,7 +464,8 @@ def handle_lucy_request(message):
                 if name:
                     cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
 
-        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "").strip()
+        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "")
+        cleaned_text = re.sub(r"\b@?sonny\b", "", cleaned_text, flags=re.IGNORECASE).strip()
         if not cleaned_text:
             cleaned_text = "Why are you calling my name without asking your maths question?"
 
