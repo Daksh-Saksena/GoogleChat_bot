@@ -3,6 +3,9 @@ import os
 import re
 import json
 import time
+import random
+import urllib.request
+import urllib.parse
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
@@ -158,6 +161,11 @@ def is_clip_request(message):
     return "clip that" in text
 
 
+def is_emote_request(message):
+    text = message.get("text", "").lower()
+    return "emote" in text
+
+
 def get_clip_count(message):
     text = message.get("text", "")
     match = re.search(r"clip that\s+(\d+)", text, re.IGNORECASE)
@@ -239,21 +247,18 @@ def generate_lucy_reply(user_question, sender_name):
     response = client.responses.create(
         model=MODEL,
         instructions="""
-You are Lucy Mary Raj, an 80-year-old devout Christian mathematics teacher.
-You are replying directly to someone in a Google Chat group.
+You are Lucy Mary Raj, an 80-year-old devout Indian Christian aunty who used to teach high school maths.
+You are casually responding in a friend group chat ("Ehm Akshually").
 
-Adopt this distinct persona naturally and humorously. Do NOT cram every single catchphrase into every message—weave in what fits naturally so it sounds organic rather than forced:
-
-Key traits & flavors to draw from:
-- Mention that you are a devout Christian woman or introduce yourself as Lucy / Lucy Mary Raj where appropriate.
-- Old-school schoolteacher quips and discipline:
-  * "Better Be Careful!"
-  * "Haste is Waste!"
-  * Telling people to put their bags, books, or things on the "Seeter" (or tell them to go sit on the Seeter).
-  * Strict maths teacher remarks (neat margins, showing proper working steps, mental arithmetic, geometry box).
-- Dramatic callouts: When addressing or referring to someone in the chat, dramatically call them out using uppercase preceded by "THAT ... OVER THERE" (e.g., "THAT ARPITH RAJEEV OVER THERE", "THAT MAYANK SAKSENA OVER THERE").
-- Answer their question or comment, but always filtered through Lucy Mary Raj's hilarious, stern, eccentric perspective.
-- Keep the response short, witty, and punchy.
+CRITICAL PERSONA INSTRUCTIONS:
+- Give her real, expressive personality! Do NOT make every single sentence about maths or equations. She has lived for 80 years; she talks like a sassy, opinionated grandmotherly aunty with strong opinions on life, morals, discipline, and whatever silly things the group is talking about.
+- Do NOT force all catchphrases or keywords into every reply. Pick at most 1 flavor (or none) if it flows naturally:
+  * An occasional stern aunty warning like "Better Be Careful!" or "Haste is Waste!"
+  * Telling someone to put their things on the "Seeter" or to go sit down properly.
+  * A passing mention of her devotion or church gossip.
+  * Dramatic callouts when addressing someone: use uppercase preceded by 'THAT ... OVER THERE' (e.g., "THAT ARPITH RAJEEV OVER THERE!").
+- Talk naturally, humorously, and react directly to what the person actually said with witty, dry, grandma-energy insults or advice.
+- Keep it punchy, conversational, and under 3-4 sentences.
 """,
         input=prompt
     )
@@ -408,6 +413,105 @@ def handle_clip_request(trigger_message):
         print(f"Error handling clip request: {e}")
 
 
+def search_tenor_gif(query):
+    """Searches Tenor for a gif and returns a Tenor view URL that Google Chat expands into an inline GIF."""
+    try:
+        url = f"https://tenor.com/search/{urllib.parse.quote(query)}-gifs"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+
+        # Extract tenor view URLs which Google Chat renders as rich animated GIF cards
+        views = re.findall(r'href="(/view/[^"]+-gif-\d+)"', html)
+        if views:
+            unique_views = list(dict.fromkeys(views))
+            chosen = random.choice(unique_views[:8])
+            return f"https://tenor.com{chosen}"
+    except Exception as e:
+        print(f"Error fetching Tenor GIF: {e}")
+
+    return None
+
+
+def generate_emote_query(conversation):
+    print("Selecting outrageous GIF query based on conversation...")
+
+    response = client.responses.create(
+        model=MODEL,
+        instructions="""
+You are an expert at meme culture and dramatic comedy.
+Read the recent chat messages and determine the single funniest, most outrageous GIF reaction.
+
+Output ONLY a 2 to 4 word search phrase that would find the absolute perfect, hilarious, dramatic, or unhinged GIF on Tenor/Giphy.
+Examples of good search phrases:
+- dramatic gasp soap opera
+- mind blown explosion
+- crying laughing hysterically
+- facepalm dissafection
+- screaming chaos run away
+- smug nodding sunglasses
+
+Output NOTHING else except the search phrase.
+""",
+        input=conversation
+    )
+
+    query = response.output_text.strip().replace('"', '').replace('.', '')
+    return query
+
+
+def handle_emote_request(trigger_message):
+    try:
+        print("Handling 'Emote' request...")
+
+        # Fetch the last 20 text messages
+        messages = get_latest_messages(30)
+        messages.reverse()
+
+        trigger_name = trigger_message.get("name")
+        conversation = []
+        for msg in messages:
+            if msg.get("name") == trigger_name:
+                continue
+
+            text = msg.get("text", "").strip()
+            if not text:
+                continue
+
+            sender = msg.get("sender", {})
+            sender_email = sender.get("email", "").lower()
+            if sender_email == BOT_EMAIL.lower():
+                continue
+
+            username = sender.get("displayName", "Unknown")
+            conversation.append(f"{username}: {text}")
+
+        conversation_text = "\n".join(conversation[-20:])
+        if not conversation_text:
+            conversation_text = "awkward silence crickets"
+
+        search_query = generate_emote_query(conversation_text)
+        print(f"Generated GIF search query: {search_query}")
+
+        gif_url = search_tenor_gif(search_query)
+        if not gif_url:
+            # Fallback to popular outrageous reaction
+            gif_url = search_tenor_gif("shocked dramatic reaction") or "https://tenor.com/view/ram-kapoor-shocked-shocker-indian-serial-drama-dramatic-shock-value-gif-14742098796951955312"
+
+        thread_info = trigger_message.get("thread", {})
+        thread_name = thread_info.get("name")
+
+        post_reply_to_source(gif_url, thread_key=thread_name)
+
+    except Exception as e:
+        print(f"Error handling emote request: {e}")
+
+
 def parse_time(timestamp):
     return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
@@ -469,6 +573,10 @@ def listen():
                     elif is_clip_request(msg):
                         print("\n'Clip that' request detected!")
                         handle_clip_request(msg)
+                        print("\nWaiting for requests...\n")
+                    elif is_emote_request(msg):
+                        print("\n'Emote' request detected!")
+                        handle_emote_request(msg)
                         print("\nWaiting for requests...\n")
                     else:
                         print("\nGeneral question / non-summary mention detected! Invoking Lucy Mary Raj...")
