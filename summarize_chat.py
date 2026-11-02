@@ -21,6 +21,12 @@ from conversation_memory import (
     is_reply_to_bot,
 )
 from reply_formatting import REPLY_OUTPUT_FORMAT, parse_reply_messages
+from useful_mode import (
+    MAX_SEARCH_MESSAGES,
+    parse_useful_request,
+    run_useful_assistant,
+    search_chat_messages,
+)
 
 load_dotenv()
 
@@ -343,6 +349,7 @@ def post_summary(summary):
 
     print("Summary posted successfully!")
     print("Message:", result.get("name"))
+    return result.get("name")
 
 
 def get_recent_chat_context(current_message, limit=20):
@@ -636,6 +643,7 @@ def post_reply_to_source(text, source_message):
 
     print("Reply posted successfully to source space!")
     print("Message:", result.get("name"))
+    return result.get("name")
 
 
 def post_chat_reply(messages, source_message):
@@ -693,6 +701,117 @@ def handle_request():
         print(f"Error handling summary request: {e}")
 
 
+def useful_mode_tool_handlers(source_message):
+    def search_history(arguments):
+        raw_query = arguments["query"]
+        if not isinstance(raw_query, str):
+            raise ValueError("A chat-history search query must be text.")
+        query = raw_query.strip()
+        if not query:
+            raise ValueError("A chat-history search query is required.")
+        if len(query) > 200:
+            raise ValueError("A chat-history search query cannot exceed 200 characters.")
+
+        ensure_valid_credentials(user_creds)
+        response = read_service.spaces().messages().list(
+            parent=SOURCE_SPACE,
+            pageSize=MAX_SEARCH_MESSAGES,
+            orderBy="createTime desc",
+        ).execute()
+        return search_chat_messages(
+            response.get("messages", []),
+            query,
+            limit=5,
+        )
+
+    def post_chat_message(arguments):
+        raw_text = arguments["text"]
+        if not isinstance(raw_text, str):
+            raise ValueError("The message to post must be text.")
+        text = raw_text.strip()
+        if not text:
+            raise ValueError("The message to post cannot be empty.")
+        if len(text) > 4000:
+            raise ValueError("The message to post cannot exceed 4000 characters.")
+        result_name = post_reply_to_source(text, source_message=source_message)
+        return f"Message posted as {result_name} in the source space."
+
+    def create_poll_action(arguments):
+        raw_question = arguments["question"]
+        if not isinstance(raw_question, str):
+            raise ValueError("A poll question must be text.")
+        question = raw_question.strip()
+        options = arguments["options"]
+        if not question:
+            raise ValueError("A poll question is required.")
+        if len(question) > 300:
+            raise ValueError("The poll question cannot exceed 300 characters.")
+        if not isinstance(options, list) or not 2 <= len(options) <= 6:
+            raise ValueError("A poll must have between 2 and 6 options.")
+        if any(not isinstance(option, str) or not option.strip() for option in options):
+            raise ValueError("Every poll option must be a non-empty string.")
+        if any(len(option.strip()) > 100 for option in options):
+            raise ValueError("Poll options cannot exceed 100 characters.")
+        return create_active_poll(
+            question,
+            [option.strip() for option in options],
+            (source_message.get("sender") or {}).get("displayName", "Someone"),
+            source_message,
+        )
+
+    def clip_messages(arguments):
+        count = arguments["count"]
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 25:
+            raise ValueError("Clip count must be between 1 and 25.")
+        trigger_message = dict(source_message)
+        trigger_message["text"] = f"clip that {count}"
+        if not handle_clip_request(trigger_message):
+            raise RuntimeError("No previous messages were available to clip.")
+        return f"Clipped {count} recent messages to the highlights space."
+
+    def summarize_recent_chat(_arguments):
+        if _arguments:
+            raise ValueError("The summarize action does not accept arguments.")
+        conversation = fetch_conversation()
+        if not conversation:
+            raise RuntimeError("There are no recent messages to summarize.")
+        summary = generate_summary(conversation)
+        result_name = post_summary(summary)
+        return f"Recent chat summary posted as {result_name} to the destination space."
+
+    return {
+        "search_chat_history": search_history,
+        "post_chat_message": post_chat_message,
+        "create_poll": create_poll_action,
+        "clip_recent_messages": clip_messages,
+        "summarize_recent_chat": summarize_recent_chat,
+    }
+
+
+def handle_useful_request(message):
+    try:
+        request = parse_useful_request(message.get("text", ""))
+        if request is None:
+            raise ValueError("Useful mode must start with 'Sonny useful'.")
+        if not request:
+            request = "How can I help?"
+
+        context_history, sender_label = get_recent_chat_context(message)
+        prompt = (
+            f"Request from {sender_label}: {request}\n\n"
+            f"Recent group context:\n{context_history}"
+        )
+        answer = run_useful_assistant(
+            client,
+            MODEL,
+            prompt,
+            useful_mode_tool_handlers(message),
+        )
+        post_reply_to_source(answer, source_message=message)
+    except Exception as error:
+        print(f"Error handling Sonny Useful request: {error}")
+
+
 def post_clip_to_highlights(clip_message):
     print("Posting clipped quote to highlights...")
 
@@ -704,6 +823,7 @@ def post_clip_to_highlights(clip_message):
 
     print("Clip posted successfully to highlights!")
     print("Message:", result.get("name"))
+    return result.get("name")
 
 
 def handle_clip_request(trigger_message):
@@ -737,7 +857,7 @@ def handle_clip_request(trigger_message):
 
         if not collected_messages:
             print("No previous messages found to clip.")
-            return
+            return False
 
         # Reverse so they appear in chronological order (oldest to newest)
         collected_messages.reverse()
@@ -764,10 +884,12 @@ def handle_clip_request(trigger_message):
             clipped_entries.append(f'{italicized}\n- {sender_name}, {formatted_time}')
 
         final_clip_message = "\n\n".join(clipped_entries)
-        post_clip_to_highlights(final_clip_message)
+        result_name = post_clip_to_highlights(final_clip_message)
+        return bool(result_name)
 
     except Exception as e:
         print(f"Error handling clip request: {e}")
+        return False
 
 
 def search_tenor_gif(query):
@@ -881,8 +1003,10 @@ def save_active_poll(poll_data):
     try:
         with open(POLL_FILE, "w") as f:
             json.dump(poll_data, f, indent=2)
+        return True
     except Exception as e:
         print(f"Error saving active poll: {e}")
+        return False
 
 
 def clear_active_poll():
@@ -928,6 +1052,38 @@ Output NOTHING else except valid JSON.
         }
 
 
+def create_active_poll(question, options, sender_name, source_message):
+    active_poll = {
+        "question": question,
+        "creator": sender_name,
+        "options": options,
+        "votes": {},
+        "created_at": datetime.now().isoformat(),
+    }
+    if not save_active_poll(active_poll):
+        raise RuntimeError("The active poll could not be saved.")
+
+    number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+    poll_lines = [
+        f"📊 *POLL: {question}*",
+        f"_Created by {sender_name}_\n",
+    ]
+    for index, option in enumerate(options):
+        emoji = number_emojis[index] if index < len(number_emojis) else f"{index + 1}."
+        poll_lines.append(f"{emoji} {option}  `(0 votes)`")
+
+    poll_lines.append(
+        "\n_To vote, mention me:_ `@Tarkin Gupta cast 1` _or_ "
+        "`@Tarkin Gupta vote Yes`"
+    )
+    poll_lines.append("_To close & announce results:_ `@Tarkin Gupta close poll`")
+    result_name = post_reply_to_source(
+        "\n".join(poll_lines),
+        source_message=source_message,
+    )
+    return f"Poll created and posted as {result_name}."
+
+
 def handle_poll_request(trigger_message):
     try:
         print("Handling 'Poll' request...")
@@ -949,34 +1105,7 @@ def handle_poll_request(trigger_message):
         question = poll_data.get("question", "Poll")
         options = poll_data.get("options", ["Yes", "No"])
 
-        # Save as the current active poll with vote tracking
-        active_poll = {
-            "question": question,
-            "creator": sender_name,
-            "options": options,
-            "votes": {},  # user_id or display_name -> option_index (int)
-            "created_at": datetime.now().isoformat()
-        }
-        save_active_poll(active_poll)
-
-        # Number emojis for poll choices
-        number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-
-        poll_lines = [
-            f"📊 *POLL: {question}*",
-            f"_Created by {sender_name}_\n"
-        ]
-
-        for i, opt in enumerate(options):
-            emoji = number_emojis[i] if i < len(number_emojis) else f"{i+1}."
-            poll_lines.append(f"{emoji} {opt}  `(0 votes)`")
-
-        poll_lines.append("\n_To vote, mention me:_ `@Tarkin Gupta cast 1` _or_ `@Tarkin Gupta vote Yes`")
-        poll_lines.append("_To close & announce results:_ `@Tarkin Gupta close poll`")
-
-        formatted_poll = "\n".join(poll_lines)
-
-        post_reply_to_source(formatted_poll, source_message=trigger_message)
+        create_active_poll(question, options, sender_name, trigger_message)
 
     except Exception as e:
         print(f"Error handling poll request: {e}")
@@ -1159,6 +1288,12 @@ def listen():
 
                 # Ignore messages sent by Tarkin itself
                 if sender_email == BOT_EMAIL.lower():
+                    continue
+
+                if parse_useful_request(msg.get("text", "")) is not None:
+                    print("\n'Sonny Useful' request detected!")
+                    handle_useful_request(msg)
+                    print("\nWaiting for requests...\n")
                     continue
 
                 if is_bot_mentioned(msg, messages):
