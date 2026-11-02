@@ -78,3 +78,8 @@ Instead of setting `GOOGLE_USER_TOKEN_JSON` and `GOOGLE_BOT_TOKEN_JSON` environm
 3. Add filename `bot_token.json` and paste the contents of your local `bot_token.json`.
 `summarize_chat.py` will automatically detect and load from them.
 
+## 6. Conversation Context
+
+When replying to a mention, the bot uses up to the 20 most recent messages in the source space as working context. It prioritizes messages from the same explicit Google Chat thread, and can infer a likely follow-up from the recent conversation even when the new message is not a formal reply. Each sender is labeled by their Google Chat account identity so people with the same display name are kept distinct.
+
+For an unthreaded message that appears to continue an earlier exchange, the bot uses that exchange as context but posts its response where the new message was sent. Conversation context is fetched from Google Chat when needed; no separate conversation-history file is stored.

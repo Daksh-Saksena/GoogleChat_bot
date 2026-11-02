@@ -14,6 +14,7 @@ from openai import OpenAI
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+from conversation_memory import format_conversation_context
 
 load_dotenv()
 
@@ -295,25 +296,26 @@ def post_summary(summary):
     print("Message:", result.get("name"))
 
 
-def get_recent_chat_context(limit=10, exclude_message_id=None):
-    """Fetches the last N text messages to give context to bot responses."""
+def get_recent_chat_context(current_message, limit=20):
+    """Builds recent context and a unique participant label for the current sender."""
     try:
-        messages = get_latest_messages(limit + 5)
+        messages = get_latest_messages(limit + 1)
         messages.reverse()
-        conversation = []
-        for msg in messages:
-            if exclude_message_id and msg.get("name") == exclude_message_id:
-                continue
-            text = msg.get("text", "").strip()
-            if not text:
-                continue
-            sender = msg.get("sender", {})
-            username = sender.get("displayName", "Friend")
-            conversation.append(f"{username}: {text}")
-        return "\n".join(conversation[-limit:])
+        return format_conversation_context(messages, current_message, limit)
     except Exception as e:
         print(f"Error fetching recent context: {e}")
-        return ""
+        return format_conversation_context([], current_message, limit)
+
+
+def build_reply_prompt(context_history, sender_name, user_question):
+    return (
+        f"RECENT GROUP CHAT CONTEXT:\n{context_history}\n\n"
+        "Treat the current message as a possible continuation of the most relevant "
+        "exchange above, including when it was not sent as a formal reply. Use the "
+        "participant labels to keep different people distinct. If no clear connection "
+        "exists, respond to the current message on its own.\n\n"
+        f"LATEST MESSAGE from {sender_name}:\n{user_question}"
+    )
 
 
 def generate_eshant_reply(user_question, sender_name, context_history=""):
@@ -348,7 +350,7 @@ Context: Flying Geek: guys where is the sample for the english letter
 Eshant: Ranjana ma'am put it
 """
 
-    prompt = f"RECENT GROUP CHAT CONTEXT:\n{context_history}\n\nLATEST MESSAGE:\n{sender_name}: {user_question}"
+    prompt = build_reply_prompt(context_history, sender_name, user_question)
 
     response = client.responses.create(
         model=MODEL,
@@ -364,8 +366,6 @@ def handle_eshant_request(message):
         sender = message.get("sender", {})
         sender_name = sender.get("displayName") or sender.get("name", "Someone")
         raw_text = message.get("text", "")
-        message_id = message.get("name")
-
         # Clean out bot mention and "eshant" keyword
         cleaned_text = raw_text
         for annotation in message.get("annotations", []):
@@ -381,10 +381,9 @@ def handle_eshant_request(message):
         if not cleaned_text:
             cleaned_text = "what"
 
-        # Fetch last 10 messages for context
-        context_history = get_recent_chat_context(limit=10, exclude_message_id=message_id)
+        context_history, sender_label = get_recent_chat_context(message)
 
-        reply = generate_eshant_reply(cleaned_text, sender_name, context_history=context_history)
+        reply = generate_eshant_reply(cleaned_text, sender_label, context_history=context_history)
 
         print("\n========== ESHANT AI REPLY ==========\n")
         print(reply)
@@ -401,7 +400,7 @@ def handle_eshant_request(message):
 def generate_lucy_reply(user_question, sender_name, context_history=""):
     print("Generating response from Lucy Mary Raj...")
 
-    prompt = f"RECENT GROUP CHAT CONTEXT:\n{context_history}\n\nLATEST MESSAGE:\n{sender_name}: {user_question}"
+    prompt = build_reply_prompt(context_history, sender_name, user_question)
 
     response = client.responses.create(
         model=MODEL,
@@ -454,8 +453,6 @@ def handle_lucy_request(message):
         sender = message.get("sender", {})
         sender_name = sender.get("displayName") or sender.get("name", "Someone")
         raw_text = message.get("text", "")
-        message_id = message.get("name")
-
         # Clean out the bot mention text
         cleaned_text = raw_text
         for annotation in message.get("annotations", []):
@@ -469,10 +466,9 @@ def handle_lucy_request(message):
         if not cleaned_text:
             cleaned_text = "Why are you calling my name without asking your maths question?"
 
-        # Fetch last 10 messages for context
-        context_history = get_recent_chat_context(limit=10, exclude_message_id=message_id)
+        context_history, sender_label = get_recent_chat_context(message)
 
-        reply = generate_lucy_reply(cleaned_text, sender_name, context_history=context_history)
+        reply = generate_lucy_reply(cleaned_text, sender_label, context_history=context_history)
 
         print("\n========== LUCY MARY RAJ REPLY ==========\n")
         print(reply)
