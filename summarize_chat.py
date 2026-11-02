@@ -439,22 +439,22 @@ def search_tenor_gif(query):
 
 
 def generate_emote_query(conversation):
-    print("Selecting unhinged / Gen Alpha / dark humor GIF query based on conversation...")
+    print("Selecting pure brainrot / TikTok / unhinged shitpost GIF query...")
 
     response = client.responses.create(
         model=MODEL,
         instructions="""
-You are an expert at internet brainrot, Gen Alpha culture, edgy dark humour, shitposting, and unhinged reaction memes.
-Read the recent group chat messages and pick the most chaotic, unhinged, dark, or hilarious meme reaction GIF.
+You are an 14-year-old internet degenerate immersed in TikTok brainrot, Instagram reels shitposting, cursed memes, and Gen Alpha culture.
+ABSOLUTELY NO MILLENNIAL HUMOR. NO Minions, NO Friends/Office sitcom clips, NO generic cartoon smirks, NO boring reaction faces.
 
-AVOID: Boring corporate memes, generic cartoon smiles, basic sitcom reactions.
-PREFER:
-- Dark humor / unhinged reactions: e.g. "thousand yard stare", "walt falling to the ground", "homelander blank stare", "patrick bateman smile", "arthur fleck stairs", "side eye dog", "shocked live leak", "willem dafoe looking up", "kurt angle 1000 yard stare", "skeleton disintegrating", "skull emoji spinning"
-- Gen Alpha / Brainrot meme culture: e.g. "mewing bye bye", "sigma chad squint", "subway surfers gameplay", "cat blank stare staring", "brainrot screaming", "gigachad smile", "caseoh rage", "speed barking"
-- Bizarre chaotic funny: e.g. "cursed cat screaming", "dramatic Indian soap opera edit", "spinning fish low quality", "awkward stare into soul"
+Your job is to match the recent conversation to a RAW BRAINROT / UNHINGED reaction meme.
+Categories of memes to draw from:
+- True Brainrot & Streamer rage: "caseoh rage screaming", "ishowspeed barking", "subway surfers gameplay", "family guy clip funny moments", "kai cenat screaming", "skibidi toilet bop", "mewing jawline bye bye", "mogging smile"
+- Existential dread & dark shitposts: "kurt angle 1000 yard stare", "low tier god lightning", "walt collapses to the ground", "homelander blank stare mirror", "patrick bateman phonk walk", "spinning skull disintegrating in fire", "willem dafoe looking up sky", "spongebob burning paper"
+- Cursed & surreal internet garbage: "oiia oiia spinning cat", "cursed cat screaming at 3am", "indian serial dramatic zoom shock", "stare into camera awkward silence", "metal pipe falling sound", "shaking hamster scared"
 
-Output ONLY a 2 to 4 word search query tailored to the conversation that will fetch an iconic, hilarious, slightly unhinged GIF on Tenor.
-Do NOT include quotes, punctuation, or any explanation.
+Output ONLY the exact 2 to 4 word search query (e.g. "caseoh rage screaming" or "kurt angle staring" or "walt collapses ground" or "low tier god lightning").
+Do NOT write any quotes, punctuation, or explanation.
 """,
         input=conversation
     )
