@@ -151,6 +151,29 @@ def is_bot_mentioned(message):
     return f"@{BOT_NAME.lower()}" in text
 
 
+MODE_FILE = "bot_persona_mode.txt"
+
+
+def get_current_persona_mode():
+    if os.path.exists(MODE_FILE):
+        try:
+            with open(MODE_FILE, "r") as f:
+                mode = f.read().strip().lower()
+                if mode in ["eshant", "lucy"]:
+                    return mode
+        except Exception:
+            return "lucy"
+    return "lucy"
+
+
+def set_persona_mode(mode_name):
+    try:
+        with open(MODE_FILE, "w") as f:
+            f.write(mode_name.lower())
+    except Exception as e:
+        print(f"Error saving persona mode: {e}")
+
+
 def is_summary_request(message):
     text = message.get("text", "").lower()
     return "summarize" in text or "summarise" in text
@@ -182,9 +205,14 @@ def is_close_poll_request(message):
     return "close poll" in text or "end poll" in text
 
 
-def is_eshant_request(message):
+def is_switch_to_eshant(message):
     text = message.get("text", "").lower()
-    return "eshant" in text
+    return bool(re.search(r"\briya\b", text))
+
+
+def is_switch_to_lucy(message):
+    text = message.get("text", "").lower()
+    return bool(re.search(r"\blucy\b", text))
 
 
 def get_clip_count(message):
@@ -960,13 +988,28 @@ def listen():
                         print("\n'Vote / Cast' request detected!")
                         handle_vote_request(msg)
                         print("\nWaiting for requests...\n")
-                    elif is_eshant_request(msg):
-                        print("\n'Eshant AI' request detected!")
-                        handle_eshant_request(msg)
+                    elif is_switch_to_eshant(msg):
+                        print("\n'Riya' trigger detected! Switching mode to Eshant Sonhar...")
+                        set_persona_mode("eshant")
+                        thread_info = msg.get("thread", {})
+                        thread_name = thread_info.get("name")
+                        post_reply_to_source("switched to eshant mode lmao", thread_key=thread_name)
+                        print("\nWaiting for requests...\n")
+                    elif is_switch_to_lucy(msg):
+                        print("\n'Lucy' trigger detected! Switching mode back to Lucy Mary Raj...")
+                        set_persona_mode("lucy")
+                        thread_info = msg.get("thread", {})
+                        thread_name = thread_info.get("name")
+                        post_reply_to_source("THAT RASCAL OVER THERE! Lucy Mary Raj is back in charge. Better be careful!", thread_key=thread_name)
                         print("\nWaiting for requests...\n")
                     else:
-                        print("\nGeneral question / non-summary mention detected! Invoking Lucy Mary Raj...")
-                        handle_lucy_request(msg)
+                        current_mode = get_current_persona_mode()
+                        if current_mode == "eshant":
+                            print("\nGeneral mention detected (Current mode: Eshant)! Invoking Eshant AI...")
+                            handle_eshant_request(msg)
+                        else:
+                            print("\nGeneral mention detected (Current mode: Lucy)! Invoking Lucy Mary Raj...")
+                            handle_lucy_request(msg)
                         print("\nWaiting for requests...\n")
 
         except Exception as error:
