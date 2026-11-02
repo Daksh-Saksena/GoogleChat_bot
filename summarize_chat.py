@@ -15,10 +15,10 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from conversation_memory import (
+    build_quoted_reply_body,
     format_conversation_context,
     is_bot_message,
     is_reply_to_bot,
-    reply_thread_name,
 )
 
 load_dotenv()
@@ -432,8 +432,7 @@ def handle_eshant_request(message):
         print(reply)
         print("\n=====================================\n")
 
-        thread_name = reply_thread_name(message)
-        post_reply_to_source(reply, thread_key=thread_name)
+        post_reply_to_source(reply, source_message=message)
     except Exception as e:
         print(f"Error handling Eshant AI request: {e}")
 
@@ -471,23 +470,16 @@ CRITICAL PERSONA INSTRUCTIONS:
     return response.output_text.strip()
 
 
-def post_reply_to_source(text, thread_key=None):
+def post_reply_to_source(text, source_message):
     print("Posting reply to source space (Ehm Akshually)...")
 
     ensure_valid_credentials(bot_creds)
 
-    body = {"text": text}
-    if thread_key:
-        body["thread"] = {"name": thread_key}
-
-    request_options = {}
-    if thread_key:
-        request_options["messageReplyOption"] = "REPLY_MESSAGE_OR_FAIL"
+    body = build_quoted_reply_body(text, source_message)
 
     result = bot_service.spaces().messages().create(
         parent=SOURCE_SPACE,
-        body=body,
-        **request_options
+        body=body
     ).execute()
 
     print("Reply posted successfully to source space!")
@@ -520,8 +512,7 @@ def handle_lucy_request(message):
         print(reply)
         print("\n=========================================\n")
 
-        thread_name = reply_thread_name(message)
-        post_reply_to_source(reply, thread_key=thread_name)
+        post_reply_to_source(reply, source_message=message)
     except Exception as e:
         print(f"Error handling Lucy Mary Raj request: {e}")
 
@@ -710,10 +701,7 @@ def handle_emote_request(trigger_message):
             # Fallback to popular outrageous reaction
             gif_url = search_tenor_gif("shocked dramatic reaction") or "https://tenor.com/view/ram-kapoor-shocked-shocker-indian-serial-drama-dramatic-shock-value-gif-14742098796951955312"
 
-        thread_info = trigger_message.get("thread", {})
-        thread_name = thread_info.get("name")
-
-        post_reply_to_source(gif_url, thread_key=thread_name)
+        post_reply_to_source(gif_url, source_message=trigger_message)
 
     except Exception as e:
         print(f"Error handling emote request: {e}")
@@ -831,10 +819,7 @@ def handle_poll_request(trigger_message):
 
         formatted_poll = "\n".join(poll_lines)
 
-        thread_info = trigger_message.get("thread", {})
-        thread_name = thread_info.get("name")
-
-        post_reply_to_source(formatted_poll, thread_key=thread_name)
+        post_reply_to_source(formatted_poll, source_message=trigger_message)
 
     except Exception as e:
         print(f"Error handling poll request: {e}")
@@ -844,7 +829,10 @@ def handle_vote_request(trigger_message):
     try:
         poll = load_active_poll()
         if not poll:
-            post_reply_to_source("There is no active poll right now! Start one with `@Tarkin Gupta make a poll ...`")
+            post_reply_to_source(
+                "There is no active poll right now! Start one with `@Tarkin Gupta make a poll ...`",
+                source_message=trigger_message,
+            )
             return
 
         sender = trigger_message.get("sender", {})
@@ -871,7 +859,10 @@ def handle_vote_request(trigger_message):
                     break
 
         if chosen_index is None:
-            post_reply_to_source(f"@{sender_display} Please specify a valid option number or name! Options are: {', '.join([f'{i+1}. {o}' for i, o in enumerate(options)])}")
+            post_reply_to_source(
+                f"@{sender_display} Please specify a valid option number or name! Options are: {', '.join([f'{i+1}. {o}' for i, o in enumerate(options)])}",
+                source_message=trigger_message,
+            )
             return
 
         # Record vote
@@ -899,9 +890,7 @@ def handle_vote_request(trigger_message):
 
         lines.append(f"\n_Total votes: {total_votes}. Say `@Tarkin Gupta close poll` to finalize results._")
 
-        thread_info = trigger_message.get("thread", {})
-        thread_name = thread_info.get("name")
-        post_reply_to_source("\n".join(lines), thread_key=thread_name)
+        post_reply_to_source("\n".join(lines), source_message=trigger_message)
 
     except Exception as e:
         print(f"Error handling vote request: {e}")
@@ -911,7 +900,10 @@ def handle_close_poll_request(trigger_message):
     try:
         poll = load_active_poll()
         if not poll:
-            post_reply_to_source("There is no active poll to close!")
+            post_reply_to_source(
+                "There is no active poll to close!",
+                source_message=trigger_message,
+            )
             return
 
         options = poll.get("options", [])
@@ -953,9 +945,7 @@ def handle_close_poll_request(trigger_message):
         # Clear poll after closing
         clear_active_poll()
 
-        thread_info = trigger_message.get("thread", {})
-        thread_name = thread_info.get("name")
-        post_reply_to_source("\n".join(lines), thread_key=thread_name)
+        post_reply_to_source("\n".join(lines), source_message=trigger_message)
 
     except Exception as e:
         print(f"Error closing poll: {e}")
@@ -1042,14 +1032,18 @@ def listen():
                     elif is_switch_to_eshant(msg):
                         print("\n'Riya' trigger detected! Switching mode to Eshant Sonhar...")
                         set_persona_mode("eshant")
-                        thread_name = reply_thread_name(msg)
-                        post_reply_to_source("switched to eshant mode lmao", thread_key=thread_name)
+                        post_reply_to_source(
+                            "switched to eshant mode lmao",
+                            source_message=msg,
+                        )
                         print("\nWaiting for requests...\n")
                     elif is_switch_to_lucy(msg):
                         print("\n'Lucy' trigger detected! Switching mode back to Lucy Mary Raj...")
                         set_persona_mode("lucy")
-                        thread_name = reply_thread_name(msg)
-                        post_reply_to_source("THAT RASCAL OVER THERE! Lucy Mary Raj is back in charge. Better be careful!", thread_key=thread_name)
+                        post_reply_to_source(
+                            "THAT RASCAL OVER THERE! Lucy Mary Raj is back in charge. Better be careful!",
+                            source_message=msg,
+                        )
                         print("\nWaiting for requests...\n")
                     else:
                         current_mode = get_current_persona_mode()

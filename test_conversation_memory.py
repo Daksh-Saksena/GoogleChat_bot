@@ -1,33 +1,64 @@
 import unittest
 
 from conversation_memory import (
+    build_quoted_reply_body,
     format_conversation_context,
     is_reply_to_bot,
-    reply_thread_name,
+    quoted_message_metadata,
 )
 
 
 class ConversationMemoryTests(unittest.TestCase):
-    def test_reply_thread_name_uses_message_thread(self):
+    def test_quote_metadata_uses_message_name_and_create_time(self):
         message = {
             "name": "spaces/space/messages/123",
-            "thread": {"name": "spaces/space/threads/456"},
+            "createTime": "2026-11-02T10:00:00Z",
         }
 
-        self.assertEqual(reply_thread_name(message), "spaces/space/threads/456")
+        self.assertEqual(
+            quoted_message_metadata(message),
+            {
+                "name": "spaces/space/messages/123",
+                "lastUpdateTime": "2026-11-02T10:00:00Z",
+            },
+        )
 
-    def test_reply_thread_name_derives_thread_from_unthreaded_message(self):
-        message = {"name": "spaces/space/messages/123"}
-
-        self.assertEqual(reply_thread_name(message), "spaces/space/threads/123")
-
-    def test_reply_thread_name_targets_quoted_message_without_thread(self):
+    def test_quote_metadata_uses_latest_edit_time(self):
         message = {
-            "name": "spaces/space/messages/reply",
-            "quotedMessageMetadata": {"name": "spaces/space/messages/quoted"},
+            "name": "spaces/space/messages/123",
+            "createTime": "2026-11-02T10:00:00Z",
+            "lastUpdateTime": "2026-11-02T10:05:00Z",
         }
 
-        self.assertEqual(reply_thread_name(message), "spaces/space/threads/quoted")
+        self.assertEqual(
+            quoted_message_metadata(message)["lastUpdateTime"],
+            "2026-11-02T10:05:00Z",
+        )
+
+    def test_quote_metadata_requires_message_name_and_timestamp(self):
+        with self.assertRaises(ValueError):
+            quoted_message_metadata({"name": "spaces/space/messages/123"})
+
+    def test_reply_body_quotes_source_without_creating_a_thread(self):
+        body = build_quoted_reply_body(
+            "ok sonny",
+            {
+                "name": "spaces/space/messages/123",
+                "createTime": "2026-11-02T10:00:00Z",
+            },
+        )
+
+        self.assertEqual(
+            body,
+            {
+                "text": "ok sonny",
+                "quotedMessageMetadata": {
+                    "name": "spaces/space/messages/123",
+                    "lastUpdateTime": "2026-11-02T10:00:00Z",
+                },
+            },
+        )
+        self.assertNotIn("thread", body)
 
     def test_detects_reply_in_bot_message_thread_without_trigger_word(self):
         bot_message = {

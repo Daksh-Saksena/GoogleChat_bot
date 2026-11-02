@@ -17,17 +17,25 @@ def _thread_name(message):
     return thread.get("name")
 
 
-def reply_thread_name(message):
-    thread_name = _thread_name(message)
-    if thread_name:
-        return thread_name
+def quoted_message_metadata(message):
+    message_name = message.get("name")
+    last_update_time = message.get("lastUpdateTime") or message.get("createTime")
+    if not message_name or not last_update_time:
+        raise ValueError(
+            "Cannot quote a message without its resource name and create/update time."
+        )
 
-    quoted_metadata = message.get("quotedMessageMetadata") or {}
-    reply_target = quoted_metadata.get("name") or message.get("name", "")
-    if "/messages/" not in reply_target:
-        return None
+    return {
+        "name": message_name,
+        "lastUpdateTime": last_update_time,
+    }
 
-    return reply_target.replace("/messages/", "/threads/", 1)
+
+def build_quoted_reply_body(text, source_message):
+    return {
+        "text": text,
+        "quotedMessageMetadata": quoted_message_metadata(source_message),
+    }
 
 
 def is_bot_message(message, bot_email, bot_name):
