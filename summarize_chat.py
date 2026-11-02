@@ -210,7 +210,7 @@ def get_current_persona_mode():
         try:
             with open(MODE_FILE, "r") as f:
                 mode = f.read().strip().lower()
-                if mode in ["eshant", "lucy"]:
+                if mode in ["eshant", "arpith", "lucy"]:
                     return mode
         except Exception:
             return "lucy"
@@ -259,6 +259,11 @@ def is_close_poll_request(message):
 def is_switch_to_eshant(message):
     text = message.get("text", "").lower()
     return bool(re.search(r"\briya\b", text))
+
+
+def is_switch_to_arpith(message):
+    text = message.get("text", "").lower()
+    return bool(re.search(r"\baadhya\b", text))
 
 
 def is_switch_to_lucy(message):
@@ -435,6 +440,82 @@ def handle_eshant_request(message):
         post_reply_to_source(reply, source_message=message)
     except Exception as e:
         print(f"Error handling Eshant AI request: {e}")
+
+
+def generate_arpith_reply(user_question, sender_name, context_history=""):
+    print("Generating response from Arpith Rajeev AI...")
+
+    system_prompt = """You are Arpith Rajeev (Arpith) in the 'Ehm Akshually' Google Chat group.
+Talk, react, and respond EXACTLY like Arpith based on his real 2,356 chat messages.
+
+KEY PERSONALITY & SPEECH HABITS OF ARPITH:
+- High energy, expressive, slightly chaotic, expressive slang.
+- Vocabulary & Catchphrases:
+  * Uses 'bro', 'vro', 'gng', 'fr gng', 'nah bro', 'crazyy', 'lmaoooo', 'tf tf', 'W', 'L', 'massive', 'censor'.
+  * Uses CAPS for dramatic outrage or excitement: 'DAKSH S WAS ABLE TO MAKE THIS IN A CAVE', 'CENSOR', 'AI CONTROLS DEATH NOW'.
+  * Lighthearted roasting of Daksh, Aarush, and Flying Geek.
+  * Casual banter about school, math, ChatGPT, Apple devices, teachers, and exams.
+- AADHYA: Arpith has a sweet soft spot / affection for Aadhya! Occasionally, he might mention Aadhya, defend Aadhya, or playfully talk about her (e.g. noticing things about her or wondering what she thinks).
+- Natural conversationalist: Never sounds like an AI or a bot. Sounds like an animated high school friend typing on his phone.
+
+REAL CONVERSATION EXAMPLES OF ARPITH:
+Context: Arpith Rajeev: @Shally Gupta | plz no soviet memes | Eshant: give all ze soviet memes
+Arpith: oml bro i will teleport to brigade metropolis and metro your polis bro
+
+Context: daksh saksena: U DONT KNOW THIS SONG | SUCH A DISGRACE
+Arpith: DAKSH S WAS ABLE TO MAKE THIS IN A CAVE
+
+Context: Advaith Sanoop: cant find pic, but 1 guy online asked "he shd be let free"
+Arpith: i hope he was kidding
+
+Context: Flying Geek: at least in ur coherent form we ll never hear from u ever again
+Arpith: bro praying for my return 😭
+
+Context: Eshant: their chips are getting pretty power hungry
+Arpith: the assumption that apple batteries last longer
+"""
+
+    prompt = build_reply_prompt(context_history, sender_name, user_question)
+
+    response = client.responses.create(
+        model=MODEL,
+        instructions=system_prompt,
+        input=prompt
+    )
+
+    return response.output_text.strip()
+
+
+def handle_arpith_request(message):
+    try:
+        raw_text = message.get("text", "")
+        # Clean out bot mention and "arpith" keyword
+        cleaned_text = raw_text
+        for annotation in message.get("annotations", []):
+            if annotation.get("type") == "USER_MENTION":
+                name = annotation.get("userMention", {}).get("user", {}).get("displayName", "")
+                if name:
+                    cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
+
+        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "")
+        cleaned_text = re.sub(r"\b@?sonny\b", "", cleaned_text, flags=re.IGNORECASE)
+        cleaned_text = re.sub(r"\barpith\b", "", cleaned_text, flags=re.IGNORECASE).strip()
+
+        if not cleaned_text:
+            cleaned_text = "what"
+
+        context_history, sender_label = get_recent_chat_context(message)
+
+        reply = generate_arpith_reply(cleaned_text, sender_label, context_history=context_history)
+
+        print("\n========== ARPITH AI REPLY ==========\n")
+        print(reply)
+        print("\n=====================================\n")
+
+        thread_name = reply_thread_name(message)
+        post_reply_to_source(reply, thread_key=thread_name)
+    except Exception as e:
+        print(f"Error handling Arpith AI request: {e}")
 
 
 def generate_lucy_reply(user_question, sender_name, context_history=""):
@@ -1037,6 +1118,12 @@ def listen():
                             source_message=msg,
                         )
                         print("\nWaiting for requests...\n")
+                    elif is_switch_to_arpith(msg):
+                        print("\n'Aadhya' trigger detected! Switching mode to Arpith Rajeev...")
+                        set_persona_mode("arpith")
+                        thread_name = reply_thread_name(msg)
+                        post_reply_to_source("bro switched to arpith mode vro", thread_key=thread_name)
+                        print("\nWaiting for requests...\n")
                     elif is_switch_to_lucy(msg):
                         print("\n'Lucy' trigger detected! Switching mode back to Lucy Mary Raj...")
                         set_persona_mode("lucy")
@@ -1050,6 +1137,9 @@ def listen():
                         if current_mode == "eshant":
                             print("\nGeneral mention detected (Current mode: Eshant)! Invoking Eshant AI...")
                             handle_eshant_request(msg)
+                        elif current_mode == "arpith":
+                            print("\nGeneral mention detected (Current mode: Arpith)! Invoking Arpith AI...")
+                            handle_arpith_request(msg)
                         else:
                             print("\nGeneral mention detected (Current mode: Lucy)! Invoking Lucy Mary Raj...")
                             handle_lucy_request(msg)
