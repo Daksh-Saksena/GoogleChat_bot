@@ -17,6 +17,53 @@ def _thread_name(message):
     return thread.get("name")
 
 
+def reply_thread_name(message):
+    thread_name = _thread_name(message)
+    if thread_name:
+        return thread_name
+
+    quoted_metadata = message.get("quotedMessageMetadata") or {}
+    reply_target = quoted_metadata.get("name") or message.get("name", "")
+    if "/messages/" not in reply_target:
+        return None
+
+    return reply_target.replace("/messages/", "/threads/", 1)
+
+
+def is_bot_message(message, bot_email, bot_name):
+    sender = message.get("sender") or {}
+    email = sender.get("email", "").lower()
+    display_name = sender.get("displayName", "").lower()
+    return (
+        email == bot_email.lower()
+        or display_name == bot_name.lower()
+        or sender.get("name", "").lower() == f"users/{bot_email}".lower()
+    )
+
+
+def is_reply_to_bot(message, history, bot_email, bot_name):
+    message_id = message.get("name")
+    quoted_metadata = message.get("quotedMessageMetadata") or {}
+    quoted_message_id = quoted_metadata.get("name")
+
+    for previous_message in history:
+        if previous_message.get("name") == message_id:
+            continue
+        if quoted_message_id and previous_message.get("name") == quoted_message_id:
+            return is_bot_message(previous_message, bot_email, bot_name)
+
+    current_thread = _thread_name(message)
+    if not current_thread:
+        return False
+
+    return any(
+        previous_message.get("name") != message_id
+        and _thread_name(previous_message) == current_thread
+        and is_bot_message(previous_message, bot_email, bot_name)
+        for previous_message in history
+    )
+
+
 def format_conversation_context(messages, current_message, limit=20):
     current_message_id = current_message.get("name")
     history = [

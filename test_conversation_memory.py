@@ -1,9 +1,88 @@
 import unittest
 
-from conversation_memory import format_conversation_context
+from conversation_memory import (
+    format_conversation_context,
+    is_reply_to_bot,
+    reply_thread_name,
+)
 
 
 class ConversationMemoryTests(unittest.TestCase):
+    def test_reply_thread_name_uses_message_thread(self):
+        message = {
+            "name": "spaces/space/messages/123",
+            "thread": {"name": "spaces/space/threads/456"},
+        }
+
+        self.assertEqual(reply_thread_name(message), "spaces/space/threads/456")
+
+    def test_reply_thread_name_derives_thread_from_unthreaded_message(self):
+        message = {"name": "spaces/space/messages/123"}
+
+        self.assertEqual(reply_thread_name(message), "spaces/space/threads/123")
+
+    def test_reply_thread_name_targets_quoted_message_without_thread(self):
+        message = {
+            "name": "spaces/space/messages/reply",
+            "quotedMessageMetadata": {"name": "spaces/space/messages/quoted"},
+        }
+
+        self.assertEqual(reply_thread_name(message), "spaces/space/threads/quoted")
+
+    def test_detects_reply_in_bot_message_thread_without_trigger_word(self):
+        bot_message = {
+            "name": "spaces/space/messages/bot",
+            "sender": {
+                "name": "users/bot@example.com",
+                "email": "bot@example.com",
+                "displayName": "Tarkin Gupta",
+            },
+            "thread": {"name": "spaces/space/threads/bot"},
+        }
+        user_reply = {
+            "name": "spaces/space/messages/reply",
+            "sender": {"name": "users/1", "displayName": "Alex"},
+            "thread": {"name": "spaces/space/threads/bot"},
+            "text": "yeah, exactly",
+        }
+
+        self.assertTrue(
+            is_reply_to_bot(user_reply, [bot_message], "bot@example.com", "Tarkin Gupta")
+        )
+
+    def test_detects_quote_reply_to_bot_without_thread_metadata(self):
+        bot_message = {
+            "name": "spaces/space/messages/bot",
+            "sender": {"email": "bot@example.com", "displayName": "Tarkin Gupta"},
+        }
+        user_reply = {
+            "name": "spaces/space/messages/reply",
+            "sender": {"name": "users/1", "displayName": "Alex"},
+            "quotedMessageMetadata": {"name": "spaces/space/messages/bot"},
+            "text": "what did you mean?",
+        }
+
+        self.assertTrue(
+            is_reply_to_bot(user_reply, [bot_message], "bot@example.com", "Tarkin Gupta")
+        )
+
+    def test_does_not_trigger_for_reply_to_another_user(self):
+        other_message = {
+            "name": "spaces/space/messages/other",
+            "sender": {"name": "users/2", "displayName": "Sam"},
+            "thread": {"name": "spaces/space/threads/other"},
+        }
+        user_reply = {
+            "name": "spaces/space/messages/reply",
+            "sender": {"name": "users/1", "displayName": "Alex"},
+            "thread": {"name": "spaces/space/threads/other"},
+            "text": "yeah, exactly",
+        }
+
+        self.assertFalse(
+            is_reply_to_bot(user_reply, [other_message], "bot@example.com", "Tarkin Gupta")
+        )
+
     def test_distinguishes_people_with_the_same_display_name(self):
         messages = [
             {

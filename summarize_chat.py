@@ -14,7 +14,12 @@ from openai import OpenAI
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from conversation_memory import format_conversation_context
+from conversation_memory import (
+    format_conversation_context,
+    is_bot_message,
+    is_reply_to_bot,
+    reply_thread_name,
+)
 
 load_dotenv()
 
@@ -129,7 +134,10 @@ def get_latest_messages(limit=50):
     return response.get("messages", [])
 
 
-def is_bot_mentioned(message):
+def is_bot_mentioned(message, recent_messages=None):
+    if is_reply_to_bot(message, recent_messages or [], BOT_EMAIL, BOT_NAME):
+        return True
+
     # Check Google Chat's actual mention metadata
     for annotation in message.get("annotations", []):
         if annotation.get("type") != "USER_MENTION":
@@ -155,6 +163,41 @@ def is_bot_mentioned(message):
     # Check for "Sonny" trigger word (e.g. "Sonny clip that", "Sonny do this", "@sonny")
     if bool(re.search(r"\bsonny\b", text)):
         return True
+
+    quoted_metadata = message.get("quotedMessageMetadata") or {}
+    quoted_message_id = quoted_metadata.get("name")
+    if quoted_message_id:
+        try:
+            quoted_message = read_service.spaces().messages().get(
+                name=quoted_message_id
+            ).execute()
+        except Exception as error:
+            print(f"Error checking quoted message {quoted_message_id}: {error}")
+        else:
+            if is_bot_message(quoted_message, BOT_EMAIL, BOT_NAME):
+                return True
+
+    thread_name = (message.get("thread") or {}).get("name")
+    if thread_name:
+        page_token = None
+        while True:
+            try:
+                response = read_service.spaces().messages().list(
+                    parent=SOURCE_SPACE,
+                    filter=f'thread.name = "{thread_name}"',
+                    pageSize=100,
+                    pageToken=page_token,
+                ).execute()
+            except Exception as error:
+                print(f"Error checking bot reply thread {thread_name}: {error}")
+                return False
+
+            thread_messages = response.get("messages", [])
+            if is_reply_to_bot(message, thread_messages, BOT_EMAIL, BOT_NAME):
+                return True
+            page_token = response.get("nextPageToken")
+            if not page_token:
+                break
 
     return False
 
@@ -389,9 +432,7 @@ def handle_eshant_request(message):
         print(reply)
         print("\n=====================================\n")
 
-        thread_info = message.get("thread", {})
-        thread_name = thread_info.get("name")
-
+        thread_name = reply_thread_name(message)
         post_reply_to_source(reply, thread_key=thread_name)
     except Exception as e:
         print(f"Error handling Eshant AI request: {e}")
@@ -439,9 +480,14 @@ def post_reply_to_source(text, thread_key=None):
     if thread_key:
         body["thread"] = {"name": thread_key}
 
+    request_options = {}
+    if thread_key:
+        request_options["messageReplyOption"] = "REPLY_MESSAGE_OR_FAIL"
+
     result = bot_service.spaces().messages().create(
         parent=SOURCE_SPACE,
-        body=body
+        body=body,
+        **request_options
     ).execute()
 
     print("Reply posted successfully to source space!")
@@ -474,9 +520,7 @@ def handle_lucy_request(message):
         print(reply)
         print("\n=========================================\n")
 
-        thread_info = message.get("thread", {})
-        thread_name = thread_info.get("name")
-
+        thread_name = reply_thread_name(message)
         post_reply_to_source(reply, thread_key=thread_name)
     except Exception as e:
         print(f"Error handling Lucy Mary Raj request: {e}")
@@ -970,7 +1014,7 @@ def listen():
                 if sender_email == BOT_EMAIL.lower():
                     continue
 
-                if is_bot_mentioned(msg):
+                if is_bot_mentioned(msg, messages):
                     if is_summary_request(msg):
                         print("\nSummary request detected!")
                         handle_request()
@@ -998,15 +1042,13 @@ def listen():
                     elif is_switch_to_eshant(msg):
                         print("\n'Riya' trigger detected! Switching mode to Eshant Sonhar...")
                         set_persona_mode("eshant")
-                        thread_info = msg.get("thread", {})
-                        thread_name = thread_info.get("name")
+                        thread_name = reply_thread_name(msg)
                         post_reply_to_source("switched to eshant mode lmao", thread_key=thread_name)
                         print("\nWaiting for requests...\n")
                     elif is_switch_to_lucy(msg):
                         print("\n'Lucy' trigger detected! Switching mode back to Lucy Mary Raj...")
                         set_persona_mode("lucy")
-                        thread_info = msg.get("thread", {})
-                        thread_name = thread_info.get("name")
+                        thread_name = reply_thread_name(msg)
                         post_reply_to_source("THAT RASCAL OVER THERE! Lucy Mary Raj is back in charge. Better be careful!", thread_key=thread_name)
                         print("\nWaiting for requests...\n")
                     else:
