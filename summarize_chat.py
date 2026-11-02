@@ -166,6 +166,11 @@ def is_emote_request(message):
     return "emote" in text
 
 
+def is_poll_request(message):
+    text = message.get("text", "").lower()
+    return "poll" in text
+
+
 def get_clip_count(message):
     text = message.get("text", "")
     match = re.search(r"clip that\s+(\d+)", text, re.IGNORECASE)
@@ -510,6 +515,87 @@ def handle_emote_request(trigger_message):
         print(f"Error handling emote request: {e}")
 
 
+def generate_poll_data(user_prompt):
+    print("Extracting poll question and options with AI...")
+
+    response = client.responses.create(
+        model=MODEL,
+        instructions="""
+Extract the poll title/question and the options from the user's message.
+Respond ONLY with a JSON object in this format:
+{
+  "question": "Clear, concise poll question?",
+  "options": ["Option 1", "Option 2"]
+}
+If options are not explicitly stated, generate standard sensible choices (e.g. ["Yes", "No"]).
+Limit options to between 2 and 6 choices.
+Output NOTHING else except valid JSON.
+""",
+        input=user_prompt
+    )
+
+    raw_text = response.output_text.strip()
+    # Remove markdown code block if present
+    if raw_text.startswith("```"):
+        raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+        raw_text = re.sub(r"\s*```$", "", raw_text)
+
+    try:
+        return json.loads(raw_text)
+    except Exception as e:
+        print(f"Error parsing poll JSON: {e}")
+        return {
+            "question": "Poll",
+            "options": ["Yes", "No"]
+        }
+
+
+def handle_poll_request(trigger_message):
+    try:
+        print("Handling 'Poll' request...")
+        sender = trigger_message.get("sender", {})
+        sender_name = sender.get("displayName") or sender.get("name", "Someone")
+        raw_text = trigger_message.get("text", "")
+
+        # Clean out the bot mention
+        cleaned_text = raw_text
+        for annotation in trigger_message.get("annotations", []):
+            if annotation.get("type") == "USER_MENTION":
+                name = annotation.get("userMention", {}).get("user", {}).get("displayName", "")
+                if name:
+                    cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
+
+        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "").strip()
+
+        poll_data = generate_poll_data(cleaned_text)
+        question = poll_data.get("question", "Poll")
+        options = poll_data.get("options", ["Yes", "No"])
+
+        # Number emojis for poll choices
+        number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+        poll_lines = [
+            f"📊 *POLL: {question}*",
+            f"_Created by {sender_name}_\n"
+        ]
+
+        for i, opt in enumerate(options):
+            emoji = number_emojis[i] if i < len(number_emojis) else f"{i+1}."
+            poll_lines.append(f"{emoji} {opt}")
+
+        poll_lines.append("\n_React with the corresponding number or reply to cast your vote!_")
+
+        formatted_poll = "\n".join(poll_lines)
+
+        thread_info = trigger_message.get("thread", {})
+        thread_name = thread_info.get("name")
+
+        post_reply_to_source(formatted_poll, thread_key=thread_name)
+
+    except Exception as e:
+        print(f"Error handling poll request: {e}")
+
+
 def parse_time(timestamp):
     return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
@@ -575,6 +661,10 @@ def listen():
                     elif is_emote_request(msg):
                         print("\n'Emote' request detected!")
                         handle_emote_request(msg)
+                        print("\nWaiting for requests...\n")
+                    elif is_poll_request(msg):
+                        print("\n'Poll' request detected!")
+                        handle_poll_request(msg)
                         print("\nWaiting for requests...\n")
                     else:
                         print("\nGeneral question / non-summary mention detected! Invoking Lucy Mary Raj...")
