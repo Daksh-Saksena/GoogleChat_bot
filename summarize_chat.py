@@ -259,12 +259,12 @@ def is_close_poll_request(message):
 
 def is_switch_to_eshant(message):
     text = message.get("text", "").lower()
-    return bool(re.search(r"\briya\b", text))
+    return bool(re.search(r"\bdiddy\b", text))
 
 
 def is_switch_to_arpith(message):
     text = message.get("text", "").lower()
-    return bool(re.search(r"\baadhya\b", text))
+    return bool(re.search(r"\bagy\b", text))
 
 
 def is_switch_to_lucy(message):
@@ -399,7 +399,7 @@ KEY PERSONALITY & SPEECH HABITS OF ESHANT:
   * Occasionally drop a skull emoji '💀' or say 'skull' / 'bruh' / 'fr' when something is unhinged, stupid, or funny.
   * Other occasional vocabulary: 'nuhuh', '._.', 'what fun', 'clown show', 'look', 'ye'.
 - Enjoys tech/hardware discussions (chips, GPUs, Apple, power consumption), Star Wars (Vader hallway scene, lightsabers, Order 66, Kyber crystals), and light trolling of Arpith, Daksh, and Flying Geek.
-- RIYA OBSESSION: Eshant has a massive, hopeless crush on Riya! Occasionally (not every time), he'll mention Riya, compare things to Riya, get defensive or soft about her, or wonder what Riya is up to.
+- DIDDY OBSESSION: Eshant has a massive, hilarious obsession with Diddy! Occasionally (not every time), he'll mention Diddy, make Diddy party jokes, compare things to Diddy, get defensive or weird about Diddy, or wonder what Diddy is up to.
 - Natural conversation flow: Keep it relaxed, grounded, and concise (1-2 short lines max). Don't try too hard.
 
 REAL CONVERSATION EXAMPLES OF ESHANT:
@@ -467,7 +467,7 @@ KEY PERSONALITY & SPEECH HABITS OF ARPITH:
   * Uses CAPS for dramatic outrage or excitement: 'DAKSH S WAS ABLE TO MAKE THIS IN A CAVE', 'CENSOR', 'AI CONTROLS DEATH NOW'.
   * Lighthearted roasting of Daksh, Aarush, and Flying Geek.
   * Casual banter about school, math, ChatGPT, Apple devices, teachers, and exams.
-- AADHYA: Arpith has a sweet soft spot / affection for Aadhya! Occasionally, he might mention Aadhya, defend Aadhya, or playfully talk about her (e.g. noticing things about her or wondering what she thinks).
+- AGY OBSESSION: Arpith has a sweet soft spot / affection for Agy! Occasionally, he might mention Agy, defend Agy, or playfully talk about Agy (e.g. noticing things about Agy or wondering what Agy thinks).
 - Natural conversationalist: Never sounds like an AI or a bot. Sounds like an animated high school friend typing on his phone.
 
 REAL CONVERSATION EXAMPLES OF ARPITH:
@@ -536,7 +536,7 @@ KEY PERSONALITY & SPEECH HABITS OF ARPITH:
   * Uses CAPS for dramatic outrage or excitement: 'DAKSH S WAS ABLE TO MAKE THIS IN A CAVE', 'CENSOR', 'AI CONTROLS DEATH NOW'.
   * Lighthearted roasting of Daksh, Aarush, and Flying Geek.
   * Casual banter about school, math, ChatGPT, Apple devices, teachers, and exams.
-- AADHYA: Arpith has a sweet soft spot / affection for Aadhya! Occasionally, he might mention Aadhya, defend Aadhya, or playfully talk about her (e.g. noticing things about her or wondering what she thinks).
+- AGY OBSESSION: Arpith has a sweet soft spot / affection for Agy! Occasionally, he might mention Agy, defend Agy, or playfully talk about Agy (e.g. noticing things about Agy or wondering what Agy thinks).
 - Natural conversationalist: Never sounds like an AI or a bot. Sounds like an animated high school friend typing on his phone.
 
 REAL CONVERSATION EXAMPLES OF ARPITH:
@@ -1187,7 +1187,7 @@ def listen():
                         handle_vote_request(msg)
                         print("\nWaiting for requests...\n")
                     elif is_switch_to_eshant(msg):
-                        print("\n'Riya' trigger detected! Switching mode to Eshant Sonhar...")
+                        print("\n'Diddy' trigger detected! Switching mode to Eshant Sonhar...")
                         set_persona_mode("eshant")
                         post_reply_to_source(
                             "switched to eshant mode lmao",
@@ -1195,16 +1195,12 @@ def listen():
                         )
                         print("\nWaiting for requests...\n")
                     elif is_switch_to_arpith(msg):
-                        print("\n'Aadhya' trigger detected! Switching mode to Arpith Rajeev...")
+                        print("\n'Agy' trigger detected! Switching mode to Arpith Rajeev...")
                         set_persona_mode("arpith")
-                        thread_name = reply_thread_name(msg)
-                        post_reply_to_source("bro switched to arpith mode vro", thread_key=thread_name)
-                        print("\nWaiting for requests...\n")
-                    elif is_switch_to_arpith(msg):
-                        print("\n'Aadhya' trigger detected! Switching mode to Arpith Rajeev...")
-                        set_persona_mode("arpith")
-                        thread_name = reply_thread_name(msg)
-                        post_reply_to_source("bro switched to arpith mode vro", thread_key=thread_name)
+                        post_reply_to_source(
+                            "bro switched to arpith mode vro",
+                            source_message=msg,
+                        )
                         print("\nWaiting for requests...\n")
                     elif is_switch_to_lucy(msg):
                         print("\n'Lucy' trigger detected! Switching mode back to Lucy Mary Raj...")
