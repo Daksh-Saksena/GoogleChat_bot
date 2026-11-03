@@ -401,13 +401,9 @@ def build_reply_prompt(context_history, sender_name, user_question):
         "exchange above, including when it was not sent as a formal reply. Use the "
         "participant labels to keep different people distinct. If no clear connection "
         "exists, respond to the current message on its own.\n"
-        "Keep replies concise by default: usually one or two sentences. Use a short "
-        "paragraph of up to 60 words only when the question genuinely needs explanation "
-        "or context. Usually send one chat message; occasionally split into two or three "
-        "separate short messages when that feels natural in conversation, not just to "
-        "make a reply longer. Return a JSON object with a 'messages' array of strings; "
-        "each array item will be sent as its own quoted chat message. Keep all messages "
-        "together within 60 words.\n\n"
+        "Keep replies concise and single-message: send EXACTLY ONE short, punchy chat message. "
+        "Do NOT split your reply into multiple messages. Return a JSON object with a 'messages' "
+        "array containing exactly 1 string within 40 words.\n\n"
         f"LATEST MESSAGE from {sender_name}:\n{user_question}"
     )
 
@@ -561,75 +557,6 @@ def handle_arpith_request(message):
         print(f"Error handling Arpith AI request: {e}")
 
 
-def generate_arpith_reply(user_question, sender_name, context_history=""):
-    print("Generating response from Arpith Rajeev AI...")
-
-    system_prompt = """You are Arpith Rajeev (Arpith) in the 'Ehm Akshually' Google Chat group.
-Talk, react, and respond EXACTLY like Arpith based on his real 2,356 chat messages.
-
-KEY PERSONALITY & SPEECH HABITS OF ARPITH:
-- High energy, expressive, slightly chaotic, expressive slang.
-- Vocabulary & Catchphrases:
-  * Uses 'bro', 'vro', 'gng', 'fr gng', 'nah bro', 'crazyy', 'lmaoooo', 'tf tf', 'W', 'L', 'massive', 'censor'.
-  * Uses CAPS for dramatic outrage or excitement: 'DAKSH S WAS ABLE TO MAKE THIS IN A CAVE', 'CENSOR', 'AI CONTROLS DEATH NOW'.
-  * Lighthearted roasting of Daksh, Aarush, and Flying Geek.
-  * Casual banter about school, math, ChatGPT, Apple devices, teachers, and exams.
-- AGY OBSESSION: Arpith has a sweet soft spot / affection for Agy! Occasionally, he might mention Agy, defend Agy, or playfully talk about Agy (e.g. noticing things about Agy or wondering what Agy thinks).
-- Natural conversationalist: Never sounds like an AI or a bot. Sounds like an animated high school friend typing on his phone.
-
-REAL CONVERSATION EXAMPLES OF ARPITH:
-Context: Arpith Rajeev: @Shally Gupta | plz no soviet memes | Eshant: give all ze soviet memes
-Arpith: oml bro i will teleport to brigade metropolis and metro your polis bro
-
-Context: daksh saksena: U DONT KNOW THIS SONG | SUCH A DISGRACE
-Arpith: DAKSH S WAS ABLE TO MAKE THIS IN A CAVE
-
-Context: Advaith Sanoop: cant find pic, but 1 guy online asked "he shd be let free"
-Arpith: i hope he was kidding
-
-Context: Flying Geek: at least in ur coherent form we ll never hear from u ever again
-Arpith: bro praying for my return 😭
-
-Context: Eshant: their chips are getting pretty power hungry
-Arpith: the assumption that apple batteries last longer
-"""
-
-    prompt = build_reply_prompt(context_history, sender_name, user_question)
-
-    return generate_chat_reply(system_prompt, prompt)
-
-
-def handle_arpith_request(message):
-    try:
-        raw_text = message.get("text", "")
-        # Clean out bot mention and "arpith" keyword
-        cleaned_text = raw_text
-        for annotation in message.get("annotations", []):
-            if annotation.get("type") == "USER_MENTION":
-                name = annotation.get("userMention", {}).get("user", {}).get("displayName", "")
-                if name:
-                    cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
-
-        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "")
-        cleaned_text = re.sub(r"\b@?sonny\b", "", cleaned_text, flags=re.IGNORECASE)
-        cleaned_text = re.sub(r"\barpith\b", "", cleaned_text, flags=re.IGNORECASE).strip()
-
-        if not cleaned_text:
-            cleaned_text = "what"
-
-        context_history, sender_label = get_recent_chat_context(message)
-
-        reply = generate_arpith_reply(cleaned_text, sender_label, context_history=context_history)
-
-        print("\n========== ARPITH AI REPLY ==========\n")
-        print("\n".join(reply))
-        print("\n=====================================\n")
-
-        post_chat_reply(reply, source_message=message)
-    except Exception as e:
-        print(f"Error handling Arpith AI request: {e}")
-
-
 def generate_lucy_reply(user_question, sender_name, context_history=""):
     print("Generating response from Lucy Mary Raj...")
 
@@ -678,7 +605,7 @@ def post_reply_to_source(text, source_message):
 
 
 def post_chat_reply(messages, source_message):
-    for message in messages:
+    for message in messages[:1]:
         post_reply_to_source(message, source_message)
 
 
