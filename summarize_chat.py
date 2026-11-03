@@ -868,11 +868,9 @@ def handle_clip_request(trigger_message):
                 continue
 
             text = msg.get("text", "").strip()
-            sender = msg.get("sender", {})
-            sender_email = sender.get("email", "").lower()
 
-            # Skip messages from bot itself and skip empty messages
-            if sender_email == BOT_EMAIL.lower() or not text:
+            # Skip empty messages
+            if not text:
                 continue
 
             collected_messages.append(msg)
