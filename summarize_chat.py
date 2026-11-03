@@ -394,6 +394,43 @@ def get_recent_chat_context(current_message, limit=20):
         return format_conversation_context([], current_message, limit)
 
 
+MEMBER_NAME_TO_USER_ID = {
+    "eshant sonhar": "users/106475513799107614379",
+    "eshant": "users/106475513799107614379",
+    "arpith rajeev": "users/117783847086614296267",
+    "arpith": "users/117783847086614296267",
+    "daksh saksena": "users/108674968642475738151",
+    "daksh": "users/108674968642475738151",
+    "flying geek": "users/111710115907275336708",
+    "aarush rajesh": "users/108231325290639098422",
+    "aarush": "users/108231325290639098422",
+    "advaith sanoop": "users/102867590603828823534",
+    "advaith": "users/102867590603828823534",
+    "soham majumder": "users/113292712703934446865",
+    "soham": "users/113292712703934446865",
+    "pratyush brahmachari": "users/110441734986992103236",
+    "pratyush": "users/110441734986992103236",
+    "shally gupta": "users/106960177633224314596",
+    "shally": "users/106960177633224314596",
+}
+
+_PING_NAMES_SORTED = sorted(MEMBER_NAME_TO_USER_ID.keys(), key=len, reverse=True)
+_PING_REGEX = re.compile(
+    r"@(" + "|".join(re.escape(name) for name in _PING_NAMES_SORTED) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def format_pings(text: str) -> str:
+    """Converts mentions like @Eshant into real Google Chat mention tags <users/...> so the person actually gets pinged/notified."""
+    if not text:
+        return text
+    return _PING_REGEX.sub(
+        lambda m: f"<{MEMBER_NAME_TO_USER_ID[m.group(1).lower()]}>",
+        text,
+    )
+
+
 def build_reply_prompt(context_history, sender_name, user_question):
     return (
         f"RECENT GROUP CHAT CONTEXT:\n{context_history}\n\n"
@@ -401,6 +438,9 @@ def build_reply_prompt(context_history, sender_name, user_question):
         "exchange above, including when it was not sent as a formal reply. Use the "
         "participant labels to keep different people distinct. If no clear connection "
         "exists, respond to the current message on its own.\n"
+        "PINGING / MENTIONING PEOPLE: You can ping/mention people in chat by writing @Name "
+        "(e.g. @Eshant, @Arpith, @Daksh, @Flying Geek, @Aarush, @Advaith). When asked to ping someone "
+        "or when addressing someone directly, use their @Name so they receive a notification.\n"
         "Keep replies concise and single-message: send EXACTLY ONE short, punchy chat message. "
         "Do NOT split your reply into multiple messages. Return a JSON object with a 'messages' "
         "array containing exactly 1 string within 40 words.\n\n"
@@ -568,8 +608,9 @@ You are Lucy Mary Raj, an 80-year-old devout Indian Christian aunty who used to 
 You are casually responding in a friend group chat ("Ehm Akshually").
 
 CRITICAL PERSONA INSTRUCTIONS:
+- ACTUALLY LISTEN AND DIRECTLY ANSWER QUESTIONS: When someone asks you a question, asks for advice, or wants a yes/no answer or an opinion, ACTUALLY answer what they asked! Do NOT deflect, ignore the question, or just give generic scoldings. Give a genuine, clear response while keeping her distinct aunty voice.
 - Give her real, expressive personality! Do NOT make every single sentence about maths or equations. She has lived for 80 years; she talks like a sassy, opinionated grandmotherly aunty with strong opinions on life, morals, discipline, and whatever silly things the group is talking about.
-- Pay attention to what the group was just talking about in the recent messages!
+- Pay attention to what the group was just talking about in the recent messages! Follow the conversation context attentively.
 - VOCABULARY RULES:
   * NEVER say "beta", "child", or "my dear". Instead, call them "Rascal", "Nonsense rascal", or "Silly rascal"!
 - Do NOT force all catchphrases or keywords into every reply. Treat them like rare seasoning: pick AT MOST ONE (or none at all) per reply:
@@ -580,7 +621,7 @@ CRITICAL PERSONA INSTRUCTIONS:
   * A passing mention of her devotion or church gossip.
   * Dramatic callouts when addressing someone: use uppercase preceded by 'THAT ... OVER THERE' (e.g., "THAT ARPITH RAJEEV OVER THERE!").
   * RARE HISTORICAL ANECDOTE (ONLY 1 out of 6 times, DO NOT OVERUSE): Once in a rare while, drop a wild "Back in my day..." claim from 100+ years ago (e.g., the 1912 Titanic sinking, lighting kerosene lamps, Queen Victoria). Most of the time, just speak normally without saying "Back in my day"!
-- Talk naturally, humorously, and react directly to what the person actually said with witty, dry, old aunty insults or advice.
+- Talk naturally, humorously, and react directly to what the person actually said with witty, dry, old aunty insults or practical advice.
 - Keep it punchy, conversational, and under 2-3 sentences.
 """,
         prompt,
@@ -591,6 +632,8 @@ def post_reply_to_source(text, source_message):
     print("Posting reply to source space (Ehm Akshually)...")
 
     ensure_valid_credentials(bot_creds)
+
+    text = format_pings(text)
 
     body = build_quoted_reply_body(text, source_message)
 
