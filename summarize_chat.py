@@ -270,7 +270,7 @@ def is_summary_request(message):
 
 def is_clip_request(message):
     text = message.get("text", "").lower()
-    return "clip that" in text
+    return bool(re.search(r"\bclip\s*(that|\d+)?\b", text))
 
 
 def is_fact_check_request(message):
@@ -316,7 +316,7 @@ def is_switch_to_lucy(message):
 
 def get_clip_count(message):
     text = message.get("text", "")
-    match = re.search(r"clip that\s+(\d+)", text, re.IGNORECASE)
+    match = re.search(r"clip(?:\s+that)?\s+(\d+)", text, re.IGNORECASE)
     if match:
         try:
             return max(1, min(int(match.group(1)), 25))
@@ -912,6 +912,8 @@ def handle_clip_request(trigger_message):
 
         final_clip_message = "\n\n".join(clipped_entries)
         result_name = post_clip_to_highlights(final_clip_message)
+        if result_name:
+            post_reply_to_source(f"Clipped {len(clipped_entries)} messages to Highlights! 📌", source_message=trigger_message)
         return bool(result_name)
 
     except Exception as e:
