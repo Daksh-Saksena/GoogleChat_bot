@@ -273,6 +273,11 @@ def is_clip_request(message):
     return "clip that" in text
 
 
+def is_fact_check_request(message):
+    text = message.get("text", "").lower()
+    return "fact check" in text
+
+
 def is_emote_request(message):
     text = message.get("text", "").lower()
     return "emote" in text
@@ -964,6 +969,95 @@ Do NOT write any quotes, punctuation, or explanation.
     return query
 
 
+def handle_fact_check_request(trigger_message):
+    try:
+        print("Handling 'Fact check' request...")
+
+        # Fetch recent messages to get the last 2-3 messages before the trigger
+        messages = get_latest_messages(15)
+        trigger_name = trigger_message.get("name")
+
+        recent_msgs = []
+        for msg in messages:
+            if msg.get("name") == trigger_name:
+                continue
+
+            text = msg.get("text", "").strip()
+            if not text:
+                continue
+
+            sender = msg.get("sender", {})
+            sender_email = sender.get("email", "").lower()
+            if sender_email == BOT_EMAIL.lower():
+                continue
+
+            # Skip command messages like 'sonny fact check'
+            if is_fact_check_request(msg):
+                continue
+
+            username = sender.get("displayName", "Someone")
+            recent_msgs.append(f"{username}: {text}")
+            if len(recent_msgs) >= 3:
+                break
+
+        if not recent_msgs:
+            print("No recent messages found to fact check.")
+            post_reply_to_source("YES\nhttps://tenor.com/view/nod-yes-agree-thumbs-up-gif-20597148", source_message=trigger_message)
+            return
+
+        recent_msgs.reverse()
+        conversation_context = "\n".join(recent_msgs)
+        print(f"Fact checking context:\n{conversation_context}\n")
+
+        system_prompt = """You are a rigorous, witty fact-checker for a high school group chat.
+Analyze the factual claim made in the recent 2-3 messages provided.
+Determine if the claim is TRUE or FALSE:
+- If the statement is false, a lie, fake news, or total cap:
+  set is_true = false, identify who made the false claim in liar_name, and provide a 2-4 word search query for a dramatic liar/cap/busted reaction GIF (e.g. 'caught in 4k', 'you sit on a throne of lies', 'stop the cap', 'liar liar').
+- If the statement is accurate, true, or harmless casual banter/greeting:
+  set is_true = true, set liar_name = "", and provide a 2-4 word search query for an approving/nodding/fact reaction GIF (e.g. 'facts nodding', 'leonardo dicaprio cheers', 'approved nod').
+
+Return ONLY a JSON object:
+{"is_true": boolean, "liar_name": string, "gif_query": string}"""
+
+        response = client.responses.create(
+            model=MODEL,
+            instructions=system_prompt,
+            input=conversation_context
+        )
+
+        raw_output = response.output_text.strip()
+        print(f"Fact check LLM output: {raw_output}")
+
+        # Parse JSON output
+        clean_json = raw_output
+        if "```" in clean_json:
+            clean_json = re.sub(r"^```(?:json)?\n?", "", clean_json)
+            clean_json = re.sub(r"\n?```$", "", clean_json)
+
+        data = json.loads(clean_json.strip())
+        is_true = data.get("is_true", True)
+        liar_name = data.get("liar_name", "").strip()
+        gif_query = data.get("gif_query", "").strip()
+
+        if is_true:
+            gif_url = search_tenor_gif(gif_query or "approved nod") or "https://tenor.com/view/nod-yes-agree-thumbs-up-gif-20597148"
+            reply_text = f"YES\n{gif_url}"
+        else:
+            if not liar_name:
+                liar_name = "SOMEONE"
+            gif_url = search_tenor_gif(gif_query or "stop the cap liar") or "https://tenor.com/view/liar-liar-pants-on-fire-throne-of-lies-elf-gif-19760777"
+            reply_text = f"NO {liar_name.upper()} IS A LIAR\n{gif_url}"
+
+        print(f"Fact check reply:\n{reply_text}\n")
+        post_reply_to_source(reply_text, source_message=trigger_message)
+
+    except Exception as e:
+        print(f"Error handling fact check request: {e}")
+        # Default fallback
+        post_reply_to_source("YES\nhttps://tenor.com/view/nod-yes-agree-thumbs-up-gif-20597148", source_message=trigger_message)
+
+
 def handle_emote_request(trigger_message):
     try:
         print("Handling 'Emote' request...")
@@ -1353,6 +1447,10 @@ def listen():
                     elif is_clip_request(msg):
                         print("\n'Clip that' request detected!")
                         handle_clip_request(msg)
+                        print("\nWaiting for requests...\n")
+                    elif is_fact_check_request(msg):
+                        print("\n'Fact check' request detected!")
+                        handle_fact_check_request(msg)
                         print("\nWaiting for requests...\n")
                     elif is_emote_request(msg):
                         print("\n'Emote' request detected!")
