@@ -649,7 +649,28 @@ def post_reply_to_source(text, source_message):
     return result.get("name")
 
 
+CHINESE_BIBLE_VERSES = [
+    "「起初，神創造天地。地是空虛混沌，淵面黑暗；神的靈運行在水面上。神說：『要有光』，就有了光。」（創世記 1:1-3）",
+    "「神愛世人，甚至將祂的獨生子賜給他們，叫一切信祂的，不致滅亡，反得永生。」（約翰福音 3:16）",
+    "「敬畏耶和華是智慧的開端；認識至聖者便是聰明。」（箴言 9:10）",
+    "「耶和華是我的牧者，我必不致缺乏。祂使我躺臥在青草地上，領我在可安歇的水邊。」（詩篇 23:1-2）",
+    "「你要專心仰賴耶和華，不可倚靠自己的聰明，在你一切所行的事上都要認定祂，祂必指引你的路。」（箴言 3:5-6）",
+    "「凡勞苦擔重擔的人可以到我這裡來，我就使你們得安息。」（馬太福音 11:28）",
+    "「愛是恆久忍耐，又有恩慈；愛是不嫉妒；愛是不自誇，不張狂，不做害羞的事，不求自己的益處，不輕易發怒，不計算人的惡。」（哥林多前書 13:4-5）",
+    "「應當一無挂慮，只要凡事藉著禱告、祈求，和感謝，將你們所要的告訴神。神所賜、出人意外的平安必在基督耶穌裡保守你們的心懷意念。」（腓立比書 4:6-7）",
+    "「教養孩童，使他走當行的道，就是到老他也不偏離。」（箴言 22:6）",
+    "「所以，不要為明天憂慮，因為明天自有明天的憂慮；一天的難處一天當就夠了。」（馬太福音 6:34）",
+]
+
+
 def post_chat_reply(messages, source_message):
+    # 1 in 10 chance to respond with a passage from the Chinese Bible instead
+    if random.randint(1, 10) == 1:
+        bible_verse = random.choice(CHINESE_BIBLE_VERSES)
+        print(f"\n[1 in 10 trigger] Reciting Chinese Bible verse instead:\n{bible_verse}\n")
+        post_reply_to_source(bible_verse, source_message)
+        return
+
     for message in messages[:1]:
         post_reply_to_source(message, source_message)
 
