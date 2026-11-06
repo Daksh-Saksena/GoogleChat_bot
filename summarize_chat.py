@@ -163,8 +163,12 @@ def is_bot_mentioned(message, recent_messages=None):
 
     text = message.get("text", "").lower()
 
-    # Trigger if @Tarkin Gupta is in text OR if someone addresses the bot as "Sonny"
-    if f"@{BOT_NAME.lower()}" in text or BOT_NAME.lower() in text:
+    # Trigger if @Tarkin Gupta or Tarkin is in text OR if someone addresses the bot as "Sonny" / "Sunny"
+    if (
+        f"@{BOT_NAME.lower()}" in text
+        or BOT_NAME.lower() in text
+        or bool(re.search(r"\btarkin\b", text))
+    ):
         return True
 
     # Check for "Sonny" or "Sunny" trigger word (e.g. "Sonny clip that", "Sunny gm", "sunny bye bye")
