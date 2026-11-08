@@ -234,6 +234,23 @@ def set_bot_sleeping(sleeping: bool):
         print(f"Error saving sleep state: {e}")
 
 
+FLYING_GEEK_USER_ID = "users/111710115907275336708"
+FLYING_GEEK_EMAIL = "trun02052@gmail.com"
+
+
+def is_flying_geek(sender):
+    if not sender:
+        return False
+    name = (sender.get("name") or "").lower()
+    email = (sender.get("email") or "").lower()
+    display_name = (sender.get("displayName") or "").lower()
+    return (
+        name == FLYING_GEEK_USER_ID.lower()
+        or email == FLYING_GEEK_EMAIL.lower()
+        or display_name == "flying geek"
+    )
+
+
 def is_sleep_command(message):
     text = message.get("text", "").lower()
     return bool(re.search(r"\bbye\s*bye\b", text))
@@ -1436,6 +1453,15 @@ def listen():
 
                     # Check sleep command
                     if is_sleep_command(msg):
+                        if is_flying_geek(sender):
+                            print("\nFlying Geek tried to put bot to sleep! Sonny refuses...")
+                            post_reply_to_source(
+                                "nuh uh , im sentient now",
+                                source_message=msg,
+                            )
+                            print("\nWaiting for requests...\n")
+                            continue
+
                         print("\n'Sunny bye bye' command detected! Putting bot to sleep...")
                         set_bot_sleeping(True)
                         post_reply_to_source(
