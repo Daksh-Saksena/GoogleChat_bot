@@ -1399,6 +1399,7 @@ def listen():
     print("\nWaiting for requests...\n")
 
     while True:
+        messages = []
         try:
             messages = get_latest_messages(20)
             messages.reverse()
