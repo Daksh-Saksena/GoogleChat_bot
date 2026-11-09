@@ -4,6 +4,7 @@ import re
 import json
 import time
 import random
+import gc
 import urllib.request
 import urllib.parse
 import threading
@@ -130,7 +131,7 @@ bot_service = build(
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
-def get_latest_messages(limit=50):
+def get_latest_messages(limit=20):
     ensure_valid_credentials(user_creds)
     response = read_service.spaces().messages().list(
         parent=SOURCE_SPACE,
@@ -1399,7 +1400,7 @@ def listen():
 
     while True:
         try:
-            messages = get_latest_messages(50)
+            messages = get_latest_messages(20)
             messages.reverse()
 
             new_messages = []
@@ -1538,6 +1539,9 @@ def listen():
 
         except Exception as error:
             print("Error while checking messages:", error)
+
+        del messages
+        gc.collect()
 
         time.sleep(POLL_INTERVAL)
 
