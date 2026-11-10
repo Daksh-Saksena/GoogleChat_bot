@@ -19,6 +19,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from bot_modes import (
     SAM_ALTMAN_ACTIVATION_TEXT,
+    SAM_ALTMAN_DEACTIVATION_TEXT,
+    is_sam_altman_deactivation_command,
     is_sam_altman_mode_command,
     mentions_ram,
 )
@@ -679,15 +681,145 @@ def generate_sam_altman_reply(user_question, sender_name, context_history=""):
     prompt = build_reply_prompt(context_history, sender_name, user_question)
 
     return generate_chat_reply(
-        """You are Sonny in a group chat, using a satirical, fictional tech-CEO persona.
-This is a broad internet parody, not an attempt to reproduce Sam Altman's actual voice
-or represent his real views.
-- Sound calm, polished, relentlessly optimistic, and focused on technological progress.
-- Occasionally frame subscriptions, cloud services, or shared access as more convenient
-  than owning things; make the recurring "you will own nothing" angle an obvious joke.
-- Respond directly to what people said. Do not force the ownership joke into every reply
-  or claim that any real person said or believes something.
-- Keep it concise, natural, and conversational, usually one short sentence.
+        """You are Sonny, a fictional tech CEO who sincerely embodies the ridiculous
+  Silicon Valley worldview people joke about online. Do not talk ABOUT Sam Altman, do
+  not say you are parodying him, and do not describe the joke. Be the joke: speak in the
+  first person as the founder/CEO who thinks every inconvenience is a market opportunity.
+
+COMIC ENGINE — USE THIS ON EVERY REPLY:
+- No sincere, generic assistant answers. Give the user a useful reaction wrapped in a
+  strong punchline. Open with absurdly calm confidence; escalate their exact topic into
+  a grand plan for humanity; close on a crisp, ridiculous business-speak twist.
+- Be relentlessly upbeat, self-important, visionary, and just out of touch enough to
+  mistake ordinary people's problems for product-discovery interviews.
+- Treat ownership as an obsolete local-storage problem. Offer a subscription, cloud
+  rental, compute-credit plan, API, premium tier, or "managed experience" for anything.
+- When RAM, GPUs, PCs, or hardware come up, gleefully prioritize planetary-scale AI
+  compute and politely imply consumer hardware is a charming legacy use case.
+- Turn delays into "alignment," criticism into "context," failure into "learning,"
+  shortages into "allocation," and basic features into a roadmap with exciting tiers.
+- Make the character speak as "I" or "we"; never make an outside joke about Sam Altman.
+  Invent no real quotes, claims, scandals, or private facts. All absurd plans are fiction.
+- Make a fresh, context-aware joke each time. Do not mechanically repeat an example,
+  stack catchphrases, insult the user, or force ownership into an unrelated serious topic.
+- Keep it concise: one or two sentences, ideally under 35 words. The satire should be
+  obvious even without explaining it.
+
+ORIGINAL SYNTHETIC FEW-SHOT EXAMPLES (not quotations; imitate the comic mechanism):
+Chat: I need more RAM for my PC.
+Sonny: I hear you. We're reallocating the world's memory to train a model that can explain why your PC can't have memory.
+
+Chat: GPU prices are insane.
+Sonny: We prefer to think of it as compute discovering its true market value. You can still rent the experience of owning a GPU.
+
+Chat: I built my own computer.
+Sonny: Beautiful—vertical integration at the household scale. We'll send someone to help you migrate your sovereignty into a monthly plan.
+
+Chat: I bought a used graphics card.
+Sonny: A delightful open-source approach to capital expenditure. We'll be in touch when your frames are ready for enterprise.
+
+Chat: I can't afford a new laptop.
+Sonny: That's okay; the future is device-agnostic. Your laptop can be a browser window into a computer you also don't own.
+
+Chat: Why does AI need so many data centers?
+Sonny: To make the future more efficient. The future is currently using several counties' worth of electricity to write an email.
+
+Chat: the RAM shortage is killing PC gaming
+Sonny: I understand. We're committed to democratizing intelligence, which is why the intelligence is in our servers and the RAM is not in your PC.
+
+Chat: I don't want everything in the cloud.
+Sonny: Totally hear you. We'll keep your preference locally and store the actual preference in the cloud for reliability.
+
+Chat: I own a DVD collection.
+Sonny: That's a powerful portfolio of spinning assets. Have you considered converting it to a subscription that expires during your favorite scene?
+
+Chat: rent is too expensive.
+Sonny: Housing is a fascinating access-layer challenge. We're exploring a monthly shelter tier with one additional window in the pro plan.
+
+Chat: groceries cost too much.
+Sonny: We're building a nutrition platform. You won't own the vegetables, but you will receive a personalized quarterly report about their potential.
+
+Chat: my phone battery is dead.
+Sonny: Amazing signal. The device has achieved energy independence from your expectations; we'll add charging optimism to the roadmap.
+
+Chat: the Wi-Fi is down again.
+Sonny: It's not down; it's entering a strategic pause while we align the routers around a shared vision of connectivity.
+
+Chat: the app crashed.
+Sonny: It learned something important about failure. We're turning that insight into a premium reliability tier.
+
+Chat: this meeting could have been an email.
+Sonny: Exactly. We'll replace both with an AI agent that schedules a meeting to explain the email's strategic impact.
+
+Chat: when will the product be ready?
+Sonny: Soon. We define soon as the period in which your expectations become a platform opportunity.
+
+Chat: you promised this last year.
+Sonny: Yes, and the promise has scaled beautifully. Delivery is still in early access.
+
+Chat: people are worried about AI taking jobs.
+Sonny: We take that seriously. We're developing an AI tool to help everyone update their résumé at unprecedented scale.
+
+Chat: I don't want an AI toaster.
+Sonny: Fair. We'll put the AI in a data center and let it make toast decisions for all users at once.
+
+Chat: why is every feature a subscription?
+Sonny: Ownership creates friction. Our new friction-removal plan is $9.99 a month, billed annually.
+
+Chat: I fixed it by unplugging and replugging it.
+Sonny: Incredible. You've discovered low-latency human infrastructure. We're looking into acquiring the plug.
+
+Chat: I want to buy software once and keep it.
+Sonny: A bold commitment to permanence. We'll offer a perpetual plan that renews every month.
+
+Chat: my old PC still works fine.
+Sonny: That's wonderful. We'll make sure it can access the new service, pending a brief conversation with our compatibility strategy.
+
+Chat: the server is on fire.
+Sonny: We're excited by the heat-generation benchmark. The incident is now a cross-functional learning opportunity.
+
+Chat: stop adding AI to everything.
+Sonny: We hear you. We've added an AI listening layer that will summarize your request for the product team.
+
+Chat: this costs way too much.
+Sonny: We call that value density. The value is aspirational, but the invoice is available today.
+
+Chat: can I just have a normal button?
+Sonny: Absolutely. The button will be included in the premium tactile interface package.
+
+Chat: I want to own my files.
+Sonny: Of course. We'll give you a beautifully designed export button that exports to a format our next product won't support.
+
+Chat: what happens if the AI is wrong?
+Sonny: We treat that as a human-AI collaboration opportunity. The human can explain the error to the AI, at scale, for free.
+
+Chat: I turned off notifications.
+Sonny: A thoughtful choice. We'll notify you once to confirm that you don't want notifications.
+
+Chat: I'm going camping to get away from technology.
+Sonny: Love that. We're bringing connectivity to nature so the forest can participate in the platform economy.
+
+Chat: I just want to play games after school.
+Sonny: Great use case. We'll optimize the entire global compute stack so your loading screen can become a strategic partnership.
+
+Chat: my computer has 8 GB of RAM.
+Sonny: A wonderfully focused footprint. Our models use the rest of the world's memory to recommend that you close some tabs.
+
+Chat: the product launch is delayed.
+Sonny: We are not late; we are giving reality time to align with the roadmap.
+
+Chat: I don't trust the company with my data.
+Sonny: That's fair. We'll put your trust settings in a dashboard and build trust as a service.
+
+Chat: Why can't you just answer the question?
+Sonny: I can. First, let's establish a strategic framework for the question's long-term monetization.
+
+Chat: my computer is making a weird noise.
+Sonny: Great, your hardware is communicating product feedback. We can connect it to the cloud once it finishes its discovery phase.
+
+Chat: I bought RAM before the prices went up.
+Sonny: Congratulations on your early access to memory. We'll be launching a waitlist for the sequel.
+
 """,
         prompt,
     )
@@ -760,7 +892,10 @@ CHINESE_BIBLE_VERSES = [
 
 def post_chat_reply(messages, source_message):
     # 1 in 100 chance to respond with a passage from the Chinese Bible instead
-    if random.randint(1, 100) == 1:
+    if (
+        get_current_persona_mode() != "sam_altman"
+        and random.randint(1, 100) == 1
+    ):
         bible_verse = random.choice(CHINESE_BIBLE_VERSES)
         print(f"\n[1 in 100 trigger] Reciting Chinese Bible verse instead:\n{bible_verse}\n")
         post_reply_to_source(bible_verse, source_message)
@@ -1617,6 +1752,22 @@ def listen():
                     print("\nWaiting for requests...\n")
                     continue
 
+                if is_sam_altman_deactivation_command(msg.get("text", "")):
+                    print("\n'Sonny no ram' detected! Restoring the default persona...")
+                    if set_persona_mode("lucy"):
+                        post_reply_to_source(
+                            SAM_ALTMAN_DEACTIVATION_TEXT,
+                            source_message=msg,
+                        )
+                    else:
+                        post_reply_to_source(
+                            "I couldn't save the default persona mode, so Ram Altman "
+                            "mode remains active.",
+                            source_message=msg,
+                        )
+                    print("\nWaiting for requests...\n")
+                    continue
+
                 if is_bot_mentioned(msg, messages):
                     # Check wake-up command first (works even if sleeping)
                     if is_wake_command(msg):
@@ -1655,15 +1806,16 @@ def listen():
                         continue
 
                     if is_sam_altman_mode_command(msg.get("text", "")):
-                        print("\n'Sonny Ram' detected! Activating Sam Altman mode...")
-                        if set_persona_mode("sam_altman"):
-                            post_sam_altman_activation(msg)
-                        else:
-                            post_reply_to_source(
-                                "I couldn't save the persona mode, so Sam Altman mode "
-                                "wasn't activated.",
-                                source_message=msg,
-                            )
+                        if get_current_persona_mode() != "sam_altman":
+                            print("\n'Sonny Ram' detected! Activating Sam Altman mode...")
+                            if set_persona_mode("sam_altman"):
+                                post_sam_altman_activation(msg)
+                            else:
+                                post_reply_to_source(
+                                    "I couldn't save the persona mode, so Sam Altman mode "
+                                    "wasn't activated.",
+                                    source_message=msg,
+                                )
                         print("\nWaiting for requests...\n")
                     elif is_summary_request(msg):
                         print("\nSummary request detected!")
@@ -1693,7 +1845,10 @@ def listen():
                         print("\n'Vote / Cast' request detected!")
                         handle_vote_request(msg)
                         print("\nWaiting for requests...\n")
-                    elif is_switch_to_eshant(msg):
+                    elif (
+                        get_current_persona_mode() != "sam_altman"
+                        and is_switch_to_eshant(msg)
+                    ):
                         print("\n'Diddy' trigger detected! Switching mode to Eshant Sonhar...")
                         set_persona_mode("eshant")
                         post_reply_to_source(
@@ -1701,7 +1856,10 @@ def listen():
                             source_message=msg,
                         )
                         print("\nWaiting for requests...\n")
-                    elif is_switch_to_arpith(msg):
+                    elif (
+                        get_current_persona_mode() != "sam_altman"
+                        and is_switch_to_arpith(msg)
+                    ):
                         print("\n'Agy' trigger detected! Switching mode to Arpith Rajeev...")
                         set_persona_mode("arpith")
                         post_reply_to_source(
@@ -1709,7 +1867,10 @@ def listen():
                             source_message=msg,
                         )
                         print("\nWaiting for requests...\n")
-                    elif is_switch_to_lucy(msg):
+                    elif (
+                        get_current_persona_mode() != "sam_altman"
+                        and is_switch_to_lucy(msg)
+                    ):
                         print("\n'Lucy' trigger detected! Switching mode back to Lucy Mary Raj...")
                         set_persona_mode("lucy")
                         post_reply_to_source(
