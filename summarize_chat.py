@@ -8,13 +8,21 @@ import gc
 import urllib.request
 import urllib.parse
 import threading
+import tempfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
+from google.auth.transport.requests import AuthorizedSession, Request
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from bot_modes import (
+    SAM_ALTMAN_ACTIVATION_TEXT,
+    is_sam_altman_mode_command,
+    mentions_ram,
+)
+from chat_clips import has_clip_content, image_attachments
 from conversation_memory import (
     build_quoted_reply_body,
     format_conversation_context,
@@ -37,6 +45,10 @@ DESTINATION_SPACE = os.getenv("DESTINATION_SPACE", "spaces/AAQAZRUbksc")
 
 BOT_EMAIL = os.getenv("BOT_EMAIL", "tarkingupta@gmail.com")
 BOT_NAME = os.getenv("BOT_NAME", "Tarkin Gupta")
+MODE_ACTIVATION_IMAGE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "a6Dr0X9_460s.jpg",
+)
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "5"))
@@ -164,6 +176,9 @@ def is_bot_mentioned(message, recent_messages=None):
 
     text = message.get("text", "").lower()
 
+    if get_current_persona_mode() == "sam_altman" and mentions_ram(text):
+        return True
+
     # Trigger if @Tarkin Gupta or Tarkin is in text OR if someone addresses the bot as "Sonny" / "Sunny"
     if (
         f"@{BOT_NAME.lower()}" in text
@@ -270,7 +285,7 @@ def get_current_persona_mode():
         try:
             with open(MODE_FILE, "r") as f:
                 mode = f.read().strip().lower()
-                if mode in ["eshant", "arpith", "lucy"]:
+                if mode in ["eshant", "arpith", "lucy", "sam_altman"]:
                     return mode
         except Exception:
             return "lucy"
@@ -281,8 +296,10 @@ def set_persona_mode(mode_name):
     try:
         with open(MODE_FILE, "w") as f:
             f.write(mode_name.lower())
+        return True
     except Exception as e:
         print(f"Error saving persona mode: {e}")
+        return False
 
 
 def is_summary_request(message):
@@ -656,6 +673,58 @@ CRITICAL PERSONA INSTRUCTIONS:
     )
 
 
+def generate_sam_altman_reply(user_question, sender_name, context_history=""):
+    print("Generating a satirical tech-CEO persona reply...")
+
+    prompt = build_reply_prompt(context_history, sender_name, user_question)
+
+    return generate_chat_reply(
+        """You are Sonny in a group chat, using a satirical, fictional tech-CEO persona.
+This is a broad internet parody, not an attempt to reproduce Sam Altman's actual voice
+or represent his real views.
+- Sound calm, polished, relentlessly optimistic, and focused on technological progress.
+- Occasionally frame subscriptions, cloud services, or shared access as more convenient
+  than owning things; make the recurring "you will own nothing" angle an obvious joke.
+- Respond directly to what people said. Do not force the ownership joke into every reply
+  or claim that any real person said or believes something.
+- Keep it concise, natural, and conversational, usually one short sentence.
+""",
+        prompt,
+    )
+
+
+def handle_sam_altman_request(message):
+    try:
+        sender = message.get("sender", {})
+        raw_text = message.get("text", "")
+        cleaned_text = raw_text
+        for annotation in message.get("annotations", []):
+            if annotation.get("type") == "USER_MENTION":
+                name = annotation.get("userMention", {}).get("user", {}).get("displayName", "")
+                if name:
+                    cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
+
+        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "")
+        cleaned_text = re.sub(r"\b@?sonny\b", "", cleaned_text, flags=re.IGNORECASE).strip()
+        if not cleaned_text:
+            cleaned_text = "what do you think?"
+
+        context_history, sender_label = get_recent_chat_context(message)
+        reply = generate_sam_altman_reply(
+            cleaned_text,
+            sender_label or sender.get("displayName") or "Someone",
+            context_history=context_history,
+        )
+
+        print("\n========== SATIRICAL TECH-CEO REPLY ==========\n")
+        print("\n".join(reply))
+        print("\n===============================================\n")
+
+        post_chat_reply(reply, source_message=message)
+    except Exception as error:
+        print(f"Error handling Sam Altman mode request: {error}")
+
+
 def post_reply_to_source(text, source_message):
     print("Posting reply to source space (Ehm Akshually)...")
 
@@ -862,13 +931,114 @@ def handle_useful_request(message):
         print(f"Error handling Sonny Useful request: {error}")
 
 
-def post_clip_to_highlights(clip_message):
+def upload_image_file(image_path, parent_space, filename, content_type="image/jpeg"):
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"Image file does not exist: {image_path}")
+    if not content_type.lower().startswith("image/"):
+        raise ValueError("Only image files can be uploaded by this helper.")
+
+    uploaded = bot_service.media().upload(
+        parent=parent_space,
+        body={"filename": filename},
+        media_body=MediaFileUpload(
+            image_path,
+            mimetype=content_type,
+            resumable=True,
+        ),
+    ).execute()
+    if not uploaded.get("attachmentDataRef"):
+        raise RuntimeError("Google Chat did not return an uploaded image reference.")
+    return uploaded
+
+
+def download_and_upload_clip_image(attachment):
+    data_ref = attachment.get("attachmentDataRef") or {}
+    resource_name = data_ref.get("resourceName")
+    if not resource_name:
+        raise ValueError(
+            "An image attachment is not an uploaded Chat image; Drive images cannot "
+            "be copied by this bot."
+        )
+
+    content_name = (attachment.get("contentName") or "image").replace("\\", "/")
+    filename = os.path.basename(content_name) or "image"
+    content_type = attachment.get("contentType") or "application/octet-stream"
+    temp_path = None
+    session = AuthorizedSession(user_creds)
+    response = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="sonny-clip-",
+            suffix=os.path.splitext(filename)[1],
+            delete=False,
+        ) as temp_file:
+            temp_path = temp_file.name
+
+        media_url = (
+            "https://chat.googleapis.com/v1/media/"
+            f"{urllib.parse.quote(resource_name, safe='/')}?alt=media"
+        )
+        response = session.get(media_url, stream=True, timeout=60)
+        response.raise_for_status()
+
+        total_bytes = 0
+        with open(temp_path, "wb") as temp_file:
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    continue
+                total_bytes += len(chunk)
+                if total_bytes > 200 * 1024 * 1024:
+                    raise ValueError("An image attachment exceeds Google Chat's 200 MB limit.")
+                temp_file.write(chunk)
+
+        return upload_image_file(
+            temp_path,
+            DESTINATION_SPACE,
+            filename,
+            content_type,
+        )
+    finally:
+        if response is not None:
+            response.close()
+        session.close()
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
+def post_sam_altman_activation(message):
+    ensure_valid_credentials(bot_creds)
+    attachment = upload_image_file(
+        MODE_ACTIVATION_IMAGE,
+        SOURCE_SPACE,
+        os.path.basename(MODE_ACTIVATION_IMAGE),
+    )
+    body = build_quoted_reply_body(SAM_ALTMAN_ACTIVATION_TEXT, message)
+    body["attachment"] = [attachment]
+
+    result = bot_service.spaces().messages().create(
+        parent=SOURCE_SPACE,
+        body=body,
+    ).execute()
+    print("Sam Altman mode activation posted with image:", result.get("name"))
+    return result.get("name")
+
+
+def post_clip_to_highlights(clip_message, attachments=None):
     print("Posting clipped quote to highlights...")
 
     ensure_valid_credentials(bot_creds)
+    uploaded_attachments = [
+        download_and_upload_clip_image(attachment)
+        for attachment in attachments or []
+    ]
+    body = {"text": clip_message}
+    if uploaded_attachments:
+        body["attachment"] = uploaded_attachments
+
     result = bot_service.spaces().messages().create(
         parent=DESTINATION_SPACE,
-        body={"text": clip_message}
+        body=body,
     ).execute()
 
     print("Clip posted successfully to highlights!")
@@ -895,8 +1065,8 @@ def handle_clip_request(trigger_message):
 
             text = msg.get("text", "").strip()
 
-            # Skip empty messages
-            if not text:
+            # Keep uploaded image-only messages as well as messages containing text.
+            if not has_clip_content(msg):
                 continue
 
             collected_messages.append(msg)
@@ -911,8 +1081,11 @@ def handle_clip_request(trigger_message):
         collected_messages.reverse()
 
         clipped_entries = []
+        clipped_images = []
         for msg in collected_messages:
             quote_text = msg.get("text", "").strip()
+            message_images = image_attachments(msg)
+            clipped_images.extend(message_images)
             sender_name = msg.get("sender", {}).get("displayName", "Unknown")
 
             timestamp_str = msg.get("createTime")
@@ -922,8 +1095,11 @@ def handle_clip_request(trigger_message):
             else:
                 formatted_time = "Unknown time"
 
-            # Format each line inside underscores for Google Chat markdown italics
             lines = quote_text.splitlines()
+            lines.extend(
+                f"📷 {attachment.get('contentName') or 'Image'}"
+                for attachment in message_images
+            )
             if len(lines) == 1:
                 italicized = f'_"{lines[0]}"_'
             else:
@@ -932,13 +1108,18 @@ def handle_clip_request(trigger_message):
             clipped_entries.append(f'{italicized}\n- {sender_name}, {formatted_time}')
 
         final_clip_message = "\n\n".join(clipped_entries)
-        result_name = post_clip_to_highlights(final_clip_message)
+        result_name = post_clip_to_highlights(final_clip_message, clipped_images)
         if result_name:
             post_reply_to_source(f"Clipped {len(clipped_entries)} messages to Highlights! 📌", source_message=trigger_message)
         return bool(result_name)
 
     except Exception as e:
         print(f"Error handling clip request: {e}")
+        post_reply_to_source(
+            "I couldn't clip those messages because an attachment could not be copied. "
+            "Please try again with an image uploaded directly to Google Chat.",
+            source_message=trigger_message,
+        )
         return False
 
 
@@ -1473,7 +1654,18 @@ def listen():
                         print("\nWaiting for requests...\n")
                         continue
 
-                    if is_summary_request(msg):
+                    if is_sam_altman_mode_command(msg.get("text", "")):
+                        print("\n'Sonny Ram' detected! Activating Sam Altman mode...")
+                        if set_persona_mode("sam_altman"):
+                            post_sam_altman_activation(msg)
+                        else:
+                            post_reply_to_source(
+                                "I couldn't save the persona mode, so Sam Altman mode "
+                                "wasn't activated.",
+                                source_message=msg,
+                            )
+                        print("\nWaiting for requests...\n")
+                    elif is_summary_request(msg):
                         print("\nSummary request detected!")
                         handle_request()
                         print("\nWaiting for requests...\n")
@@ -1533,6 +1725,9 @@ def listen():
                         elif current_mode == "arpith":
                             print("\nGeneral mention detected (Current mode: Arpith)! Invoking Arpith AI...")
                             handle_arpith_request(msg)
+                        elif current_mode == "sam_altman":
+                            print("\nGeneral mention detected (Current mode: Sam Altman)! Invoking parody AI...")
+                            handle_sam_altman_request(msg)
                         else:
                             print("\nGeneral mention detected (Current mode: Lucy)! Invoking Lucy Mary Raj...")
                             handle_lucy_request(msg)
