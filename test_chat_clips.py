@@ -22,6 +22,10 @@ class ChatClipTests(unittest.TestCase):
             get_clip_count({"text": "Sonny clip 1000 --force"}),
             1000,
         )
+        self.assertEqual(
+            get_clip_count({"text": "Sonny clip --force 1000"}),
+            1000,
+        )
 
     def test_clip_this_is_a_single_message_request(self):
         self.assertTrue(
@@ -40,7 +44,7 @@ class ChatClipTests(unittest.TestCase):
     def test_replied_gif_message_is_fetched_as_single_clip_target(self):
         target_message = {
             "text": "look at this",
-            "attachments": [
+            "attachment": [
                 {
                     "contentName": "reaction.gif",
                     "contentType": "image/gif",
@@ -86,7 +90,7 @@ class ChatClipTests(unittest.TestCase):
 
     def test_image_only_message_can_be_clipped(self):
         message = {
-            "attachments": [
+            "attachment": [
                 {
                     "contentName": "photo.png",
                     "contentType": "image/png",
@@ -125,7 +129,7 @@ class ChatClipTests(unittest.TestCase):
 
     def test_drive_image_attachment_is_clippable(self):
         message = {
-            "attachments": [
+            "attachment": [
                 {
                     "contentName": "upload.jpg",
                     "contentType": "image/jpeg",
@@ -141,6 +145,31 @@ class ChatClipTests(unittest.TestCase):
 
         self.assertTrue(has_clip_content(message))
         self.assertEqual(len(image_attachments(message)), 2)
+
+    def test_image_attachment_is_recognized_from_filename_when_mime_is_missing(self):
+        image = {
+            "contentName": "photo.png",
+            "attachmentDataRef": {"resourceName": "upload/photo"},
+        }
+        message = {"attachment": [image]}
+
+        self.assertTrue(has_clip_content(message))
+        self.assertEqual(image_attachments(message), [image])
+
+    def test_single_attachment_object_is_supported(self):
+        image = {"contentName": "reaction.gif", "contentType": "image/gif"}
+
+        self.assertEqual(image_attachments({"attachment": image}), [image])
+
+    def test_singular_api_field_takes_precedence_over_legacy_plural_alias(self):
+        uploaded_image = {"contentType": "image/png", "contentName": "uploaded.png"}
+        legacy_image = {"contentType": "image/gif", "contentName": "legacy.gif"}
+        message = {
+            "attachment": [uploaded_image],
+            "attachments": [legacy_image],
+        }
+
+        self.assertEqual(image_attachments(message), [uploaded_image])
 
     def test_gif_attachment_is_clippable(self):
         message = {

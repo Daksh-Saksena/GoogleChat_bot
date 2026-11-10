@@ -1145,6 +1145,8 @@ def download_and_upload_clip_image(
                 if total_bytes > 200_000_000:
                     raise ValueError("An image attachment exceeds Google Chat's 200 MB limit.")
                 temp_file.write(chunk)
+        if total_bytes == 0:
+            raise ValueError(f"Google returned an empty image for {filename}.")
 
         return upload_image_file(
             temp_path,
@@ -1153,6 +1155,8 @@ def download_and_upload_clip_image(
             content_type,
             service=destination_service,
         )
+    except Exception as error:
+        raise RuntimeError(f"Failed to copy image {filename!r}: {error}") from error
     finally:
         if response is not None:
             response.close()

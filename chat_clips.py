@@ -1,3 +1,4 @@
+import mimetypes
 import re
 import urllib.parse
 
@@ -27,11 +28,24 @@ def get_replied_clip_message(trigger_message, service):
 
 
 def image_attachments(message):
+    attachments = message.get("attachment") or message.get("attachments") or []
+    if isinstance(attachments, dict):
+        attachments = [attachments]
     return [
         attachment
-        for attachment in message.get("attachments", [])
-        if (attachment.get("contentType") or "").lower().startswith("image/")
+        for attachment in attachments
+        if is_image_attachment(attachment)
     ]
+
+
+def is_image_attachment(attachment):
+    content_type = (attachment.get("contentType") or "").split(";", 1)[0].strip().lower()
+    if content_type.startswith("image/"):
+        return True
+
+    content_name = attachment.get("contentName") or ""
+    guessed_type = mimetypes.guess_type(content_name)[0] or ""
+    return guessed_type.startswith("image/")
 
 
 def image_download_url(attachment):
@@ -86,7 +100,11 @@ def split_clip_text(text, max_bytes=MAX_CLIP_MESSAGE_BYTES):
 
 def get_clip_count(message):
     text = message.get("text", "")
-    match = re.search(r"clip(?:\s+that)?\s+(\d+)", text, re.IGNORECASE)
+    match = re.search(
+        r"\bclip(?:\s+(?:that|this))?(?:\s+--force)?\s+(\d+)\b",
+        text,
+        re.IGNORECASE,
+    )
     if not match:
         return 1
 
