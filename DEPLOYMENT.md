@@ -84,6 +84,8 @@ The user token needs the `https://www.googleapis.com/auth/drive.readonly` scope 
 
 Clip requests run on a dedicated background worker so normal Chat polling and replies continue while a clip is prepared. Large clips are split into ordered Highlights messages below Chat's message-size limit, and image attachments are distributed across those messages. Google Chat's 200 MB per-file upload limit still applies.
 
+An explicit count in a clip request is no longer capped; without a count, the bot clips the most recent eligible message. Large counts are limited by the history available in the source space.
+
 ## 7. Conversation Context
 
 When replying to a mention or a direct reply to one of its messages, the bot uses up to the 20 most recent messages in the source space as working context. Direct replies in a bot-authored thread or quoted replies to a bot message trigger a response without requiring a name or keyword. The bot quotes the message it is answering and does not start or reply in a thread. It prioritizes messages from the same explicit Google Chat thread for context, and can infer a likely follow-up from the recent conversation even when the new message is not a formal reply. Each sender is labeled by their Google Chat account identity so people with the same display name are kept distinct.

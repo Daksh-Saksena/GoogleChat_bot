@@ -2,7 +2,6 @@ import re
 import urllib.parse
 
 
-MAX_CLIP_COUNT = 25
 MAX_CLIP_MESSAGE_BYTES = 24_000
 
 
@@ -75,8 +74,7 @@ def get_clip_count(message):
     except ValueError:
         return 1
 
-    force = bool(re.search(r"(?:^|\s)--force(?:\s|$)", text, re.IGNORECASE))
-    return count if force else min(count, MAX_CLIP_COUNT)
+    return count
 
 
 def has_clip_content(message):
