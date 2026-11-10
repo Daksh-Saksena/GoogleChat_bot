@@ -2,6 +2,7 @@
 import os
 import re
 import json
+import mimetypes
 import time
 import random
 import gc
@@ -9,6 +10,7 @@ import urllib.request
 import urllib.parse
 import threading
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 from dotenv import load_dotenv
@@ -24,7 +26,13 @@ from bot_modes import (
     is_sam_altman_mode_command,
     mentions_ram,
 )
-from chat_clips import get_clip_count, has_clip_content, image_attachments
+from chat_clips import (
+    get_clip_count,
+    has_clip_content,
+    image_attachments,
+    image_download_url,
+    split_clip_text,
+)
 from conversation_memory import (
     build_quoted_reply_body,
     format_conversation_context,
@@ -76,7 +84,8 @@ def start_health_server():
 
 USER_SCOPES = [
     "https://www.googleapis.com/auth/chat.messages.readonly",
-    "https://www.googleapis.com/auth/chat.spaces.readonly"
+    "https://www.googleapis.com/auth/chat.spaces.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 BOT_SCOPES = [
@@ -143,10 +152,13 @@ bot_service = build(
 )
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+clip_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sonny-clip")
 
 
-def get_latest_messages(limit=20):
-    ensure_valid_credentials(user_creds)
+def get_latest_messages(limit=20, service=None, credentials=None):
+    service = service or read_service
+    credentials = credentials or user_creds
+    ensure_valid_credentials(credentials)
     messages = []
     page_token = None
 
@@ -160,7 +172,7 @@ def get_latest_messages(limit=20):
         if page_token:
             request["pageToken"] = page_token
 
-        response = read_service.spaces().messages().list(**request).execute()
+        response = service.spaces().messages().list(**request).execute()
         page_messages = response.get("messages", [])
         messages.extend(page_messages[:limit - len(messages)])
 
@@ -865,16 +877,18 @@ def handle_sam_altman_request(message):
         print(f"Error handling Sam Altman mode request: {error}")
 
 
-def post_reply_to_source(text, source_message):
+def post_reply_to_source(text, source_message, service=None, credentials=None):
     print("Posting reply to source space (Ehm Akshually)...")
 
-    ensure_valid_credentials(bot_creds)
+    service = service or bot_service
+    credentials = credentials or bot_creds
+    ensure_valid_credentials(credentials)
 
     text = format_pings(text)
 
     body = build_quoted_reply_body(text, source_message)
 
-    result = bot_service.spaces().messages().create(
+    result = service.spaces().messages().create(
         parent=SOURCE_SPACE,
         body=body
     ).execute()
@@ -1027,9 +1041,8 @@ def useful_mode_tool_handlers(source_message):
             raise ValueError("Clip count must be between 1 and 25.")
         trigger_message = dict(source_message)
         trigger_message["text"] = f"clip that {count}"
-        if not handle_clip_request(trigger_message):
-            raise RuntimeError("No previous messages were available to clip.")
-        return f"Clipped {count} recent messages to the highlights space."
+        submit_clip_request(trigger_message)
+        return f"Started clipping {count} recent messages in the background."
 
     def summarize_recent_chat(_arguments):
         if _arguments:
@@ -1074,13 +1087,20 @@ def handle_useful_request(message):
         print(f"Error handling Sonny Useful request: {error}")
 
 
-def upload_image_file(image_path, parent_space, filename, content_type="image/jpeg"):
+def upload_image_file(
+    image_path,
+    parent_space,
+    filename,
+    content_type="image/jpeg",
+    service=None,
+):
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"Image file does not exist: {image_path}")
     if not content_type.lower().startswith("image/"):
         raise ValueError("Only image files can be uploaded by this helper.")
 
-    uploaded = bot_service.media().upload(
+    service = service or bot_service
+    uploaded = service.media().upload(
         parent=parent_space,
         body={"filename": filename},
         media_body=MediaFileUpload(
@@ -1088,26 +1108,23 @@ def upload_image_file(image_path, parent_space, filename, content_type="image/jp
             mimetype=content_type,
             resumable=True,
         ),
-    ).execute()
+    ).execute(num_retries=5)
     if not uploaded.get("attachmentDataRef"):
         raise RuntimeError("Google Chat did not return an uploaded image reference.")
     return uploaded
 
 
-def download_and_upload_clip_image(attachment):
-    data_ref = attachment.get("attachmentDataRef") or {}
-    resource_name = data_ref.get("resourceName")
-    if not resource_name:
-        raise ValueError(
-            "An image attachment is not an uploaded Chat image; Drive images cannot "
-            "be copied by this bot."
-        )
-
+def download_and_upload_clip_image(
+    attachment,
+    user_credentials=None,
+    destination_service=None,
+):
     content_name = (attachment.get("contentName") or "image").replace("\\", "/")
     filename = os.path.basename(content_name) or "image"
-    content_type = attachment.get("contentType") or "application/octet-stream"
+    content_type = (attachment.get("contentType") or "").split(";", 1)[0].strip().lower()
+    user_credentials = user_credentials or user_creds
     temp_path = None
-    session = AuthorizedSession(user_creds)
+    session = AuthorizedSession(user_credentials)
     response = None
 
     try:
@@ -1118,12 +1135,23 @@ def download_and_upload_clip_image(attachment):
         ) as temp_file:
             temp_path = temp_file.name
 
-        media_url = (
-            "https://chat.googleapis.com/v1/media/"
-            f"{urllib.parse.quote(resource_name, safe='/')}?alt=media"
-        )
+        media_url = image_download_url(attachment)
         response = session.get(media_url, stream=True, timeout=60)
         response.raise_for_status()
+
+        response_content_type = (
+            response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        )
+        if not content_type.startswith("image/"):
+            content_type = (
+                response_content_type
+                if response_content_type.startswith("image/")
+                else mimetypes.guess_type(filename)[0] or ""
+            )
+        if not content_type.startswith("image/"):
+            raise ValueError(f"Could not determine image type for {filename}.")
+        if not os.path.splitext(filename)[1]:
+            filename += mimetypes.guess_extension(content_type) or ""
 
         total_bytes = 0
         with open(temp_path, "wb") as temp_file:
@@ -1131,7 +1159,7 @@ def download_and_upload_clip_image(attachment):
                 if not chunk:
                     continue
                 total_bytes += len(chunk)
-                if total_bytes > 200 * 1024 * 1024:
+                if total_bytes > 200_000_000:
                     raise ValueError("An image attachment exceeds Google Chat's 200 MB limit.")
                 temp_file.write(chunk)
 
@@ -1140,6 +1168,7 @@ def download_and_upload_clip_image(attachment):
             DESTINATION_SPACE,
             filename,
             content_type,
+            service=destination_service,
         )
     finally:
         if response is not None:
@@ -1167,57 +1196,128 @@ def post_sam_altman_activation(message):
     return result.get("name")
 
 
-def post_clip_to_highlights(clip_message, attachments=None):
+def post_clip_to_highlights(
+    clip_message,
+    attachments=None,
+    user_credentials=None,
+    bot_credentials=None,
+    service=None,
+):
     print("Posting clipped quote to highlights...")
 
-    ensure_valid_credentials(bot_creds)
+    user_credentials = user_credentials or user_creds
+    bot_credentials = bot_credentials or bot_creds
+    service = service or bot_service
+    ensure_valid_credentials(bot_credentials)
     uploaded_attachments = [
-        download_and_upload_clip_image(attachment)
+        download_and_upload_clip_image(
+            attachment,
+            user_credentials=user_credentials,
+            destination_service=service,
+        )
         for attachment in attachments or []
     ]
-    body = {"text": clip_message}
-    if uploaded_attachments:
-        body["attachment"] = uploaded_attachments
 
-    result = bot_service.spaces().messages().create(
-        parent=DESTINATION_SPACE,
-        body=body,
-    ).execute()
+    text_parts = split_clip_text(clip_message)
+    attachment_groups = [
+        uploaded_attachments[index:index + 20]
+        for index in range(0, len(uploaded_attachments), 20)
+    ]
+    part_count = max(len(text_parts), len(attachment_groups), 1)
+    result_names = []
+    for index in range(part_count):
+        text = text_parts[index] if index < len(text_parts) else ""
+        if part_count > 1:
+            text = f"Clip part {index + 1}/{part_count}\n{text}"
+        if not text:
+            text = f"Additional clipped images (part {index + 1}/{part_count})"
 
-    print("Clip posted successfully to highlights!")
-    print("Message:", result.get("name"))
-    return result.get("name")
+        body = {"text": text}
+        if index < len(attachment_groups):
+            body["attachment"] = attachment_groups[index]
+
+        result = service.spaces().messages().create(
+            parent=DESTINATION_SPACE,
+            body=body,
+        ).execute(num_retries=5)
+        result_name = result.get("name")
+        if not result_name:
+            raise RuntimeError("Google Chat did not return a name for a clip part.")
+        result_names.append(result_name)
+
+    print(f"Clip posted successfully to highlights in {part_count} part(s)!")
+    print("Message:", result_names[0])
+    return result_names[0]
 
 
-def handle_clip_request(trigger_message):
+def get_previous_clip_messages(count, trigger_message, service, credentials):
+    ensure_valid_credentials(credentials)
+    trigger_name = trigger_message.get("name")
+    trigger_time = trigger_message.get("createTime")
+    trigger_time = parse_time(trigger_time) if trigger_time else None
+    collected_messages = []
+    page_token = None
+
+    while len(collected_messages) < count:
+        request = {
+            "parent": SOURCE_SPACE,
+            "pageSize": 100,
+            "orderBy": "createTime desc",
+        }
+        if page_token:
+            request["pageToken"] = page_token
+
+        response = service.spaces().messages().list(**request).execute(num_retries=5)
+        for message in response.get("messages", []):
+            if message.get("name") == trigger_name:
+                continue
+            message_time = message.get("createTime")
+            if trigger_time and (
+                not message_time or parse_time(message_time) >= trigger_time
+            ):
+                continue
+            if has_clip_content(message):
+                collected_messages.append(message)
+                if len(collected_messages) >= count:
+                    break
+
+        next_page_token = response.get("nextPageToken")
+        if not next_page_token or next_page_token == page_token:
+            break
+        page_token = next_page_token
+
+    return collected_messages
+
+
+def handle_clip_request(
+    trigger_message,
+    source_service=None,
+    destination_service=None,
+    user_credentials=None,
+    bot_credentials=None,
+):
     try:
+        source_service = source_service or read_service
+        destination_service = destination_service or bot_service
+        user_credentials = user_credentials or user_creds
+        bot_credentials = bot_credentials or bot_creds
         count = get_clip_count(trigger_message)
         print(f"Handling 'Clip that' request (count={count})...")
-        trigger_name = trigger_message.get("name")
-
-        # Fetch recent messages from source group to find previous messages before this trigger
-        # Request enough messages to cover count + trigger message + potential bot replies
-        fetch_limit = max(20, count * 3)
-        recent_messages = get_latest_messages(fetch_limit)
-
-        collected_messages = []
-        for msg in recent_messages:
-            # Skip the trigger message itself
-            if msg.get("name") == trigger_name:
-                continue
-
-            text = msg.get("text", "").strip()
-
-            # Keep uploaded image-only messages as well as messages containing text.
-            if not has_clip_content(msg):
-                continue
-
-            collected_messages.append(msg)
-            if len(collected_messages) >= count:
-                break
+        collected_messages = get_previous_clip_messages(
+            count,
+            trigger_message,
+            source_service,
+            user_credentials,
+        )
 
         if not collected_messages:
             print("No previous messages found to clip.")
+            post_reply_to_source(
+                "I couldn't find any earlier messages to clip.",
+                source_message=trigger_message,
+                service=destination_service,
+                credentials=bot_credentials,
+            )
             return False
 
         # Reverse so they appear in chronological order (oldest to newest)
@@ -1251,19 +1351,74 @@ def handle_clip_request(trigger_message):
             clipped_entries.append(f'{italicized}\n- {sender_name}, {formatted_time}')
 
         final_clip_message = "\n\n".join(clipped_entries)
-        result_name = post_clip_to_highlights(final_clip_message, clipped_images)
+        result_name = post_clip_to_highlights(
+            final_clip_message,
+            clipped_images,
+            user_credentials=user_credentials,
+            bot_credentials=bot_credentials,
+            service=destination_service,
+        )
         if result_name:
-            post_reply_to_source(f"Clipped {len(clipped_entries)} messages to Highlights! 📌", source_message=trigger_message)
+            post_reply_to_source(
+                f"Clipped {len(clipped_entries)} messages to Highlights! 📌",
+                source_message=trigger_message,
+                service=destination_service,
+                credentials=bot_credentials,
+            )
         return bool(result_name)
 
     except Exception as e:
         print(f"Error handling clip request: {e}")
         post_reply_to_source(
-            "I couldn't clip those messages because an attachment could not be copied. "
-            "Please try again with an image uploaded directly to Google Chat.",
+            f"I couldn't complete the clip: {str(e)[:800]}",
             source_message=trigger_message,
+            service=destination_service,
+            credentials=bot_credentials,
         )
         return False
+
+
+def clone_credentials(credentials, scopes):
+    return Credentials.from_authorized_user_info(
+        json.loads(credentials.to_json()),
+        scopes=scopes,
+    )
+
+
+def run_clip_request(trigger_message):
+    clip_user_credentials = clone_credentials(user_creds, USER_SCOPES)
+    clip_bot_credentials = clone_credentials(bot_creds, BOT_SCOPES)
+    clip_read_service = build(
+        "chat",
+        "v1",
+        credentials=clip_user_credentials,
+        cache_discovery=False,
+    )
+    clip_bot_service = build(
+        "chat",
+        "v1",
+        credentials=clip_bot_credentials,
+        cache_discovery=False,
+    )
+    return handle_clip_request(
+        trigger_message,
+        source_service=clip_read_service,
+        destination_service=clip_bot_service,
+        user_credentials=clip_user_credentials,
+        bot_credentials=clip_bot_credentials,
+    )
+
+
+def log_clip_worker_error(future):
+    error = future.exception()
+    if error:
+        print(f"Clip worker failed unexpectedly: {error}")
+
+
+def submit_clip_request(trigger_message):
+    future = clip_executor.submit(run_clip_request, dict(trigger_message))
+    future.add_done_callback(log_clip_worker_error)
+    return future
 
 
 def search_tenor_gif(query):
@@ -1831,7 +1986,7 @@ def listen():
                         print("\nWaiting for requests...\n")
                     elif is_clip_request(msg):
                         print("\n'Clip that' request detected!")
-                        handle_clip_request(msg)
+                        submit_clip_request(msg)
                         print("\nWaiting for requests...\n")
                     elif is_fact_check_request(msg):
                         print("\n'Fact check' request detected!")

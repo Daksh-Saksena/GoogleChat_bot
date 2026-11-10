@@ -78,7 +78,13 @@ Instead of setting `GOOGLE_USER_TOKEN_JSON` and `GOOGLE_BOT_TOKEN_JSON` environm
 3. Add filename `bot_token.json` and paste the contents of your local `bot_token.json`.
 `summarize_chat.py` will automatically detect and load from them.
 
-## 6. Conversation Context
+## 6. Google Drive image clipping
+
+The user token needs the `https://www.googleapis.com/auth/drive.readonly` scope to copy images attached as Google Drive files. After updating the bot, rerun `auth.py`, approve the additional permission, and replace `GOOGLE_USER_TOKEN_JSON` (or the `token.json` Secret File) with the newly generated token. The bot can then copy both Drive-backed images and images uploaded directly to Google Chat, including supported GIF attachments. The Google account used for this token must also have access to each attached Drive image.
+
+Clip requests run on a dedicated background worker so normal Chat polling and replies continue while a clip is prepared. Large clips are split into ordered Highlights messages below Chat's message-size limit, and image attachments are distributed across those messages. Google Chat's 200 MB per-file upload limit still applies.
+
+## 7. Conversation Context
 
 When replying to a mention or a direct reply to one of its messages, the bot uses up to the 20 most recent messages in the source space as working context. Direct replies in a bot-authored thread or quoted replies to a bot message trigger a response without requiring a name or keyword. The bot quotes the message it is answering and does not start or reply in a thread. It prioritizes messages from the same explicit Google Chat thread for context, and can infer a likely follow-up from the recent conversation even when the new message is not a formal reply. Each sender is labeled by their Google Chat account identity so people with the same display name are kept distinct.
 
@@ -88,4 +94,4 @@ AI persona replies are kept short by default, usually one or two sentences. The 
 
 Start a message with `Sonny useful` to use the general-assistant mode instead of a persona. It can search the web with the OpenAI Responses web-search tool, search locally through the latest 1,000 messages returned by the Google Chat API, and perform supported actions when explicitly requested (post a quoted message, create a poll, clip recent messages to highlights, or summarize recent chat). Chat history is ranked locally because the Google Chat messages API does not provide full-text search. This mode requires a model and OpenAI account that support the Responses API web-search tool.
 
-Say `Sonny Ram` to activate a high-intensity satirical tech-CEO persona. Activation posts the bundled `a6Dr0X9_460s.jpg` image with the single reply `GIMME THE RAM`; keep the image in the repository root when deploying. While active, Sonny mentions and messages mentioning the whole word `Ram` receive replies in that persona. Say `Sonny no ram` to restore the default Lucy persona; Sonny replies `ram altman disabled`. `Sonny clip that` still clips recent messages. Clipping also copies image attachments uploaded directly to Google Chat into Highlights. Images attached as Google Drive files are not currently supported.
+Say `Sonny Ram` to activate a high-intensity satirical tech-CEO persona. Activation posts the bundled `a6Dr0X9_460s.jpg` image with the single reply `GIMME THE RAM`; keep the image in the repository root when deploying. While active, Sonny mentions and messages mentioning the whole word `Ram` receive replies in that persona. Say `Sonny no ram` to restore the default Lucy persona; Sonny replies `ram altman disabled`. `Sonny clip that` still clips recent messages, copying both images uploaded directly to Google Chat and image attachments stored in Google Drive into Highlights.
