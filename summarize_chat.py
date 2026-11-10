@@ -690,10 +690,10 @@ CHINESE_BIBLE_VERSES = [
 
 
 def post_chat_reply(messages, source_message):
-    # 1 in 10 chance to respond with a passage from the Chinese Bible instead
-    if random.randint(1, 10) == 1:
+    # 1 in 100 chance to respond with a passage from the Chinese Bible instead
+    if random.randint(1, 100) == 1:
         bible_verse = random.choice(CHINESE_BIBLE_VERSES)
-        print(f"\n[1 in 10 trigger] Reciting Chinese Bible verse instead:\n{bible_verse}\n")
+        print(f"\n[1 in 100 trigger] Reciting Chinese Bible verse instead:\n{bible_verse}\n")
         post_reply_to_source(bible_verse, source_message)
         return
 
