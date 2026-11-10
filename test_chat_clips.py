@@ -3,12 +3,15 @@ from unittest.mock import MagicMock
 
 from chat_clips import (
     MAX_CLIP_MESSAGE_BYTES,
+    build_clip_post_bodies,
     get_clip_count,
     get_replied_clip_message,
     has_clip_content,
     image_attachments,
     image_download_url,
     is_single_message_clip_request,
+    is_clip_request,
+    select_previous_clip_messages,
     split_clip_text,
 )
 
@@ -26,6 +29,15 @@ class ChatClipTests(unittest.TestCase):
             get_clip_count({"text": "Sonny clip --force 1000"}),
             1000,
         )
+        self.assertEqual(
+            get_clip_count({"text": "Sonny clip that --force 1000"}),
+            1000,
+        )
+
+    def test_poller_recognizes_clip_force_before_or_after_count(self):
+        for text in ("Sonny clip 20", "Sonny clip --force 20", "Sonny clip 20 --force"):
+            with self.subTest(text=text):
+                self.assertTrue(is_clip_request({"text": text}))
 
     def test_clip_this_is_a_single_message_request(self):
         self.assertTrue(
@@ -66,8 +78,40 @@ class ChatClipTests(unittest.TestCase):
             name="spaces/test/messages/target"
         )
 
+    def test_clip_this_uses_thread_root_when_quote_metadata_is_missing(self):
+        root_message = {
+            "name": "spaces/test/messages/root",
+            "text": "message from ten messages ago",
+        }
+        trigger_message = {
+            "name": "spaces/test/messages/clip-command",
+            "text": "Sonny clip this",
+            "thread": {"name": "spaces/test/threads/root"},
+        }
+        service = MagicMock()
+        service.spaces().messages().list().execute.return_value = {
+            "messages": [
+                root_message,
+                {
+                    "name": trigger_message["name"],
+                    "text": trigger_message["text"],
+                },
+            ]
+        }
+
+        self.assertIs(
+            get_replied_clip_message(trigger_message, service),
+            root_message,
+        )
+        service.spaces().messages().list.assert_called_with(
+            parent="spaces/test",
+            filter="thread.name = spaces/test/threads/root",
+            pageSize=1000,
+            orderBy="createTime asc",
+        )
+
     def test_clip_this_without_a_reply_target_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "Reply to the message"):
+        with self.assertRaisesRegex(ValueError, "Reply directly to it"):
             get_replied_clip_message({"text": "Sonny clip this"}, MagicMock())
 
     def test_replied_message_without_clip_content_is_rejected(self):
@@ -156,6 +200,40 @@ class ChatClipTests(unittest.TestCase):
         self.assertTrue(has_clip_content(message))
         self.assertEqual(image_attachments(message), [image])
 
+    def test_clip_count_keeps_sonny_authored_messages_and_skips_trigger(self):
+        trigger = {
+            "name": "spaces/test/messages/clip-command",
+            "createTime": "2026-11-10T10:00:00Z",
+        }
+        earlier_messages = [
+            {
+                "name": f"spaces/test/messages/earlier-{index}",
+                "createTime": f"2026-11-10T09:{59 - index:02}:00Z",
+                "text": f"Earlier message {index}",
+            }
+            for index in range(25)
+        ]
+        sonny_message = earlier_messages[4]
+        sonny_message["sender"] = {"email": "sonny@example.com"}
+        selected = select_previous_clip_messages(
+            [
+                trigger,
+                {
+                    "name": "spaces/test/messages/newer",
+                    "createTime": "2026-11-10T10:01:00Z",
+                    "text": "Newer message",
+                },
+                *earlier_messages,
+            ],
+            20,
+            trigger,
+        )
+
+        self.assertEqual(len(selected), 20)
+        self.assertNotIn(trigger, selected)
+        self.assertNotIn("spaces/test/messages/newer", [item["name"] for item in selected])
+        self.assertIn(sonny_message, selected)
+
     def test_single_attachment_object_is_supported(self):
         image = {"contentName": "reaction.gif", "contentType": "image/gif"}
 
@@ -203,6 +281,22 @@ class ChatClipTests(unittest.TestCase):
         chunks = split_clip_text("a" * 12 + "\n\n" + "b" * 12, max_bytes=16)
 
         self.assertEqual(chunks, ["a" * 12 + "\n\n", "b" * 12])
+
+    def test_post_bodies_preserve_all_uploaded_gifs_across_parts(self):
+        uploaded_gifs = [
+            {"attachmentDataRef": {"attachmentUploadToken": f"gif-{index}"}}
+            for index in range(25)
+        ]
+
+        bodies = build_clip_post_bodies("Clip of GIFs", uploaded_gifs)
+
+        self.assertEqual(len(bodies), 2)
+        self.assertEqual(bodies[0]["attachment"], uploaded_gifs[:20])
+        self.assertEqual(bodies[1]["attachment"], uploaded_gifs[20:])
+        self.assertEqual(
+            sum(len(body.get("attachment", [])) for body in bodies),
+            len(uploaded_gifs),
+        )
 
     def test_non_image_attachment_does_not_make_message_clippable(self):
         message = {

@@ -10,6 +10,7 @@ import urllib.request
 import urllib.parse
 import threading
 import tempfile
+import requests
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
@@ -29,11 +30,13 @@ from bot_modes import (
 from chat_clips import (
     get_clip_count,
     get_replied_clip_message,
+    build_clip_post_bodies,
     has_clip_content,
     image_attachments,
     image_download_url,
+    is_clip_request,
     is_single_message_clip_request,
-    split_clip_text,
+    select_previous_clip_messages,
 )
 from conversation_memory import (
     build_quoted_reply_body,
@@ -344,11 +347,6 @@ def set_persona_mode(mode_name):
 def is_summary_request(message):
     text = message.get("text", "").lower()
     return "summarize" in text or "summarise" in text
-
-
-def is_clip_request(message):
-    text = message.get("text", "").lower()
-    return bool(re.search(r"\bclip\s*(that|this|\d+)?\b", text))
 
 
 def is_fact_check_request(message):
@@ -1102,15 +1100,18 @@ def download_and_upload_clip_image(
     user_credentials=None,
     destination_service=None,
 ):
-    content_name = (attachment.get("contentName") or "image").replace("\\", "/")
-    filename = os.path.basename(content_name) or "image"
-    content_type = (attachment.get("contentType") or "").split(";", 1)[0].strip().lower()
     user_credentials = user_credentials or user_creds
     temp_path = None
     session = AuthorizedSession(user_credentials)
     response = None
 
     try:
+        content_name = (attachment.get("contentName") or "image").replace("\\", "/")
+        filename = os.path.basename(content_name) or "image"
+        content_type = (
+            (attachment.get("contentType") or "").split(";", 1)[0].strip().lower()
+        )
+
         with tempfile.NamedTemporaryFile(
             prefix="sonny-clip-",
             suffix=os.path.splitext(filename)[1],
@@ -1119,34 +1120,70 @@ def download_and_upload_clip_image(
             temp_path = temp_file.name
 
         media_url = image_download_url(attachment)
-        response = session.get(media_url, stream=True, timeout=60)
-        response.raise_for_status()
-
-        response_content_type = (
-            response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-        )
-        if not content_type.startswith("image/"):
-            content_type = (
-                response_content_type
-                if response_content_type.startswith("image/")
-                else mimetypes.guess_type(filename)[0] or ""
-            )
-        if not content_type.startswith("image/"):
-            raise ValueError(f"Could not determine image type for {filename}.")
-        if not os.path.splitext(filename)[1]:
-            filename += mimetypes.guess_extension(content_type) or ""
-
-        total_bytes = 0
-        with open(temp_path, "wb") as temp_file:
-            for chunk in response.iter_content(chunk_size=64 * 1024):
-                if not chunk:
+        for attempt in range(3):
+            response = None
+            try:
+                response = session.get(media_url, stream=True, timeout=60)
+                if response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
+                    time.sleep(2 ** attempt)
                     continue
-                total_bytes += len(chunk)
-                if total_bytes > 200_000_000:
-                    raise ValueError("An image attachment exceeds Google Chat's 200 MB limit.")
-                temp_file.write(chunk)
-        if total_bytes == 0:
-            raise ValueError(f"Google returned an empty image for {filename}.")
+                response.raise_for_status()
+
+                response_content_type = (
+                    response.headers.get("Content-Type", "")
+                    .split(";", 1)[0]
+                    .strip()
+                    .lower()
+                )
+                if not content_type.startswith("image/"):
+                    content_type = (
+                        response_content_type
+                        if response_content_type.startswith("image/")
+                        else mimetypes.guess_type(filename)[0] or ""
+                    )
+                if not content_type.startswith("image/"):
+                    raise ValueError(f"Could not determine image type for {filename}.")
+                if not os.path.splitext(filename)[1]:
+                    filename += mimetypes.guess_extension(content_type) or ""
+
+                total_bytes = 0
+                with open(temp_path, "wb") as temp_file:
+                    for chunk in response.iter_content(chunk_size=64 * 1024):
+                        if not chunk:
+                            continue
+                        total_bytes += len(chunk)
+                        if total_bytes > 200_000_000:
+                            raise ValueError(
+                                "An image attachment exceeds Google Chat's 200 MB limit."
+                            )
+                        temp_file.write(chunk)
+                expected_bytes = response.headers.get("Content-Length")
+                content_encoding = response.headers.get(
+                    "Content-Encoding", "identity"
+                ).lower()
+                if (
+                    expected_bytes
+                    and content_encoding == "identity"
+                    and total_bytes != int(expected_bytes)
+                ):
+                    raise requests.exceptions.ChunkedEncodingError(
+                        f"Downloaded {total_bytes} of {expected_bytes} bytes."
+                    )
+                if total_bytes == 0:
+                    if attempt < 2:
+                        time.sleep(2 ** attempt)
+                        continue
+                    raise ValueError(f"Google returned an empty image for {filename}.")
+                break
+            except requests.exceptions.RequestException:
+                if attempt == 2:
+                    raise
+                time.sleep(2 ** attempt)
+            finally:
+                if response is not None:
+                    response.close()
+        else:
+            raise RuntimeError(f"Failed to download image {filename!r}.")
 
         return upload_image_file(
             temp_path,
@@ -1158,8 +1195,6 @@ def download_and_upload_clip_image(
     except Exception as error:
         raise RuntimeError(f"Failed to copy image {filename!r}: {error}") from error
     finally:
-        if response is not None:
-            response.close()
         session.close()
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
@@ -1205,24 +1240,10 @@ def post_clip_to_highlights(
         for attachment in attachments or []
     ]
 
-    text_parts = split_clip_text(clip_message)
-    attachment_groups = [
-        uploaded_attachments[index:index + 20]
-        for index in range(0, len(uploaded_attachments), 20)
-    ]
-    part_count = max(len(text_parts), len(attachment_groups), 1)
+    post_bodies = build_clip_post_bodies(clip_message, uploaded_attachments)
+    part_count = len(post_bodies)
     result_names = []
-    for index in range(part_count):
-        text = text_parts[index] if index < len(text_parts) else ""
-        if part_count > 1:
-            text = f"Clip part {index + 1}/{part_count}\n{text}"
-        if not text:
-            text = f"Additional clipped images (part {index + 1}/{part_count})"
-
-        body = {"text": text}
-        if index < len(attachment_groups):
-            body["attachment"] = attachment_groups[index]
-
+    for body in post_bodies:
         result = service.spaces().messages().create(
             parent=DESTINATION_SPACE,
             body=body,
@@ -1239,37 +1260,30 @@ def post_clip_to_highlights(
 
 def get_previous_clip_messages(count, trigger_message, service, credentials):
     ensure_valid_credentials(credentials)
-    trigger_name = trigger_message.get("name")
-    trigger_time = trigger_message.get("createTime")
-    trigger_time = parse_time(trigger_time) if trigger_time else None
     collected_messages = []
     page_token = None
 
     while len(collected_messages) < count:
         request = {
             "parent": SOURCE_SPACE,
-            "pageSize": 100,
+            "pageSize": 1000,
             "orderBy": "createTime desc",
         }
         if page_token:
             request["pageToken"] = page_token
 
         response = service.spaces().messages().list(**request).execute(num_retries=5)
-        for message in response.get("messages", []):
-            if message.get("name") == trigger_name:
-                continue
-            message_time = message.get("createTime")
-            if trigger_time and (
-                not message_time or parse_time(message_time) >= trigger_time
-            ):
-                continue
-            if has_clip_content(message):
-                collected_messages.append(message)
-                if len(collected_messages) >= count:
-                    break
-
+        page_messages = response.get("messages", [])
+        collected_messages.extend(
+            select_previous_clip_messages(page_messages, count, trigger_message)
+        )
+        collected_messages = collected_messages[:count]
         next_page_token = response.get("nextPageToken")
-        if not next_page_token or next_page_token == page_token:
+        if (
+            len(collected_messages) >= count
+            or not next_page_token
+            or next_page_token == page_token
+        ):
             break
         page_token = next_page_token
 
