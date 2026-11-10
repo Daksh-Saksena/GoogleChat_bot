@@ -19,6 +19,7 @@ from chat_clips import (
 class ChatClipTests(unittest.TestCase):
     def test_explicit_clip_count_is_not_capped(self):
         self.assertEqual(get_clip_count({"text": "Sonny clip 1000"}), 1000)
+        self.assertEqual(get_clip_count({"text": "Sonny clip 20"}), 20)
 
     def test_force_flag_remains_compatible(self):
         self.assertEqual(
@@ -215,6 +216,18 @@ class ChatClipTests(unittest.TestCase):
         ]
         sonny_message = earlier_messages[4]
         sonny_message["sender"] = {"email": "sonny@example.com"}
+        sonny_message["attachment"] = [
+            {
+                "contentName": "sonny.gif",
+                "contentType": "image/gif",
+                "attachmentDataRef": {"resourceName": "upload/sonny-gif"},
+            },
+            {
+                "contentName": "sonny-photo.png",
+                "contentType": "image/png",
+                "attachmentDataRef": {"resourceName": "upload/sonny-photo"},
+            },
+        ]
         selected = select_previous_clip_messages(
             [
                 trigger,
@@ -233,6 +246,10 @@ class ChatClipTests(unittest.TestCase):
         self.assertNotIn(trigger, selected)
         self.assertNotIn("spaces/test/messages/newer", [item["name"] for item in selected])
         self.assertIn(sonny_message, selected)
+        self.assertEqual(
+            [image["contentName"] for image in image_attachments(sonny_message)],
+            ["sonny.gif", "sonny-photo.png"],
+        )
 
     def test_single_attachment_object_is_supported(self):
         image = {"contentName": "reaction.gif", "contentType": "image/gif"}

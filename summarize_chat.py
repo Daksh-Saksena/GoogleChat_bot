@@ -1261,6 +1261,8 @@ def post_clip_to_highlights(
 def get_previous_clip_messages(count, trigger_message, service, credentials):
     ensure_valid_credentials(credentials)
     collected_messages = []
+    seen_message_names = set()
+    seen_page_tokens = set()
     page_token = None
 
     while len(collected_messages) < count:
@@ -1274,17 +1276,28 @@ def get_previous_clip_messages(count, trigger_message, service, credentials):
 
         response = service.spaces().messages().list(**request).execute(num_retries=5)
         page_messages = response.get("messages", [])
-        collected_messages.extend(
-            select_previous_clip_messages(page_messages, count, trigger_message)
-        )
-        collected_messages = collected_messages[:count]
+        for message in select_previous_clip_messages(
+            page_messages,
+            count - len(collected_messages),
+            trigger_message,
+        ):
+            message_name = message.get("name")
+            if message_name and message_name in seen_message_names:
+                continue
+            if message_name:
+                seen_message_names.add(message_name)
+            collected_messages.append(message)
+            if len(collected_messages) >= count:
+                break
+
         next_page_token = response.get("nextPageToken")
         if (
             len(collected_messages) >= count
             or not next_page_token
-            or next_page_token == page_token
+            or next_page_token in seen_page_tokens
         ):
             break
+        seen_page_tokens.add(next_page_token)
         page_token = next_page_token
 
     return collected_messages
