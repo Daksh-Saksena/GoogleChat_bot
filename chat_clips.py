@@ -5,6 +5,27 @@ import urllib.parse
 MAX_CLIP_MESSAGE_BYTES = 24_000
 
 
+def is_single_message_clip_request(message):
+    return bool(re.search(r"\bclip\s+this\b", message.get("text", ""), re.IGNORECASE))
+
+
+def get_replied_clip_message(trigger_message, service):
+    quoted_message_name = (
+        trigger_message.get("quotedMessageMetadata") or {}
+    ).get("name")
+    if not quoted_message_name:
+        raise ValueError(
+            "Reply to the message you want clipped, then say 'Sonny clip this'."
+        )
+
+    message = service.spaces().messages().get(
+        name=quoted_message_name
+    ).execute(num_retries=5)
+    if not has_clip_content(message):
+        raise ValueError("The message you replied to has no text or supported images.")
+    return message
+
+
 def image_attachments(message):
     return [
         attachment

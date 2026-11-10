@@ -5,6 +5,7 @@ from reply_formatting import (
     MAX_REPLY_MESSAGES,
     MAX_REPLY_WORDS,
     REPLY_OUTPUT_FORMAT,
+    first_reply_message,
     parse_reply_messages,
 )
 
@@ -51,6 +52,14 @@ class ReplyFormattingTests(unittest.TestCase):
         reply = " ".join(["word"] * MAX_REPLY_WORDS)
 
         self.assertEqual(parse_reply_messages(json.dumps({"messages": [reply]})), [reply])
+
+    def test_selects_first_generated_reply_without_replacing_its_language(self):
+        messages = ["The answer is 42.", "A second optional message."]
+
+        self.assertEqual(first_reply_message(messages), "The answer is 42.")
+
+    def test_first_generated_reply_is_none_when_no_messages_exist(self):
+        self.assertIsNone(first_reply_message([]))
 
 
 if __name__ == "__main__":

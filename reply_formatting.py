@@ -48,3 +48,7 @@ def parse_reply_messages(output_text):
         )
 
     return cleaned_messages
+
+
+def first_reply_message(messages):
+    return messages[0] if messages else None

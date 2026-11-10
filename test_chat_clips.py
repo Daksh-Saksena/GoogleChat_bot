@@ -1,11 +1,14 @@
 import unittest
+from unittest.mock import MagicMock
 
 from chat_clips import (
     MAX_CLIP_MESSAGE_BYTES,
     get_clip_count,
+    get_replied_clip_message,
     has_clip_content,
     image_attachments,
     image_download_url,
+    is_single_message_clip_request,
     split_clip_text,
 )
 
@@ -19,6 +22,61 @@ class ChatClipTests(unittest.TestCase):
             get_clip_count({"text": "Sonny clip 1000 --force"}),
             1000,
         )
+
+    def test_clip_this_is_a_single_message_request(self):
+        self.assertTrue(
+            is_single_message_clip_request({"text": "Sonny clip this"})
+        )
+        self.assertTrue(
+            is_single_message_clip_request({"text": "@Sonny, CLIP THIS please"})
+        )
+        self.assertFalse(
+            is_single_message_clip_request({"text": "Sonny clip that"})
+        )
+        self.assertFalse(
+            is_single_message_clip_request({"text": "Sonny clip 5"})
+        )
+
+    def test_replied_gif_message_is_fetched_as_single_clip_target(self):
+        target_message = {
+            "text": "look at this",
+            "attachments": [
+                {
+                    "contentName": "reaction.gif",
+                    "contentType": "image/gif",
+                    "attachmentDataRef": {"resourceName": "upload/reaction"},
+                }
+            ],
+        }
+        service = MagicMock()
+        service.spaces().messages().get().execute.return_value = target_message
+        trigger_message = {
+            "quotedMessageMetadata": {"name": "spaces/test/messages/target"},
+        }
+
+        self.assertIs(
+            get_replied_clip_message(trigger_message, service),
+            target_message,
+        )
+        service.spaces().messages().get.assert_any_call(
+            name="spaces/test/messages/target"
+        )
+
+    def test_clip_this_without_a_reply_target_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Reply to the message"):
+            get_replied_clip_message({"text": "Sonny clip this"}, MagicMock())
+
+    def test_replied_message_without_clip_content_is_rejected(self):
+        service = MagicMock()
+        service.spaces().messages().get().execute.return_value = {
+            "attachments": [{"contentType": "application/pdf"}],
+        }
+
+        with self.assertRaisesRegex(ValueError, "no text or supported images"):
+            get_replied_clip_message(
+                {"quotedMessageMetadata": {"name": "spaces/test/messages/target"}},
+                service,
+            )
 
     def test_unrecognized_force_variant_does_not_change_requested_count(self):
         self.assertEqual(

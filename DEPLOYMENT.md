@@ -84,7 +84,7 @@ The user token needs the `https://www.googleapis.com/auth/drive.readonly` scope 
 
 Clip requests run on a dedicated background worker so normal Chat polling and replies continue while a clip is prepared. Large clips are split into ordered Highlights messages below Chat's message-size limit, and image attachments are distributed across those messages. Google Chat's 200 MB per-file upload limit still applies.
 
-An explicit count in a clip request is no longer capped; without a count, the bot clips the most recent eligible message. Large counts are limited by the history available in the source space.
+An explicit count in a clip request is no longer capped; without a count, the bot clips the most recent eligible message. To clip one specific message, reply to it with `Sonny clip this`; its text and attached images/GIFs are copied to Highlights. Large counts are limited by the history available in the source space.
 
 ## 7. Conversation Context
 
