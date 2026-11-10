@@ -24,7 +24,7 @@ from bot_modes import (
     is_sam_altman_mode_command,
     mentions_ram,
 )
-from chat_clips import has_clip_content, image_attachments
+from chat_clips import get_clip_count, has_clip_content, image_attachments
 from conversation_memory import (
     build_quoted_reply_body,
     format_conversation_context,
@@ -147,13 +147,32 @@ client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 def get_latest_messages(limit=20):
     ensure_valid_credentials(user_creds)
-    response = read_service.spaces().messages().list(
-        parent=SOURCE_SPACE,
-        pageSize=limit,
-        orderBy="createTime desc"
-    ).execute()
+    messages = []
+    page_token = None
 
-    return response.get("messages", [])
+    while len(messages) < limit:
+        page_size = min(limit - len(messages), 100)
+        request = {
+            "parent": SOURCE_SPACE,
+            "pageSize": page_size,
+            "orderBy": "createTime desc",
+        }
+        if page_token:
+            request["pageToken"] = page_token
+
+        response = read_service.spaces().messages().list(**request).execute()
+        page_messages = response.get("messages", [])
+        messages.extend(page_messages[:limit - len(messages)])
+
+        next_page_token = response.get("nextPageToken")
+        if not next_page_token or not page_messages:
+            break
+        if next_page_token == page_token:
+            print("Message pagination stopped because the API repeated a page token.")
+            break
+        page_token = next_page_token
+
+    return messages
 
 
 def is_bot_mentioned(message, recent_messages=None):
@@ -353,17 +372,6 @@ def is_switch_to_arpith(message):
 def is_switch_to_lucy(message):
     text = message.get("text", "").lower()
     return bool(re.search(r"\blucy\b", text))
-
-
-def get_clip_count(message):
-    text = message.get("text", "")
-    match = re.search(r"clip(?:\s+that)?\s+(\d+)", text, re.IGNORECASE)
-    if match:
-        try:
-            return max(1, min(int(match.group(1)), 25))
-        except ValueError:
-            return 1
-    return 1
 
 
 def fetch_conversation():
