@@ -49,6 +49,10 @@ from reply_formatting import (
     first_reply_message,
     parse_reply_messages,
 )
+from boomer_slop import (
+    generate_boomer_slop_post,
+    is_boomer_slop_request,
+)
 from useful_mode import (
     MAX_SEARCH_MESSAGES,
     parse_useful_request,
@@ -903,6 +907,20 @@ def post_reply_to_source(text, source_message, service=None, credentials=None):
 
 
 def post_chat_reply(messages, source_message):
+    # 1 in 20 chance to shitpost a Facebook boomer inspirational quote / AI slop instead
+    if (
+        get_current_persona_mode() != "sam_altman"
+        and random.randint(1, 20) == 1
+    ):
+        print("\n[1 in 20 trigger] Dropping random Facebook boomer inspirational quote / AI slop!")
+        boomer_post = generate_boomer_slop_post(
+            client=client,
+            model=MODEL,
+            search_gif_fn=search_tenor_gif,
+        )
+        post_reply_to_source(boomer_post, source_message)
+        return
+
     message = first_reply_message(messages)
     if message is not None:
         post_reply_to_source(message, source_message)
@@ -2031,6 +2049,15 @@ def listen():
                     elif is_vote_request(msg):
                         print("\n'Vote / Cast' request detected!")
                         handle_vote_request(msg)
+                        print("\nWaiting for requests...\n")
+                    elif is_boomer_slop_request(msg):
+                        print("\nFacebook boomer quote / AI slop request detected!")
+                        boomer_post = generate_boomer_slop_post(
+                            client=client,
+                            model=MODEL,
+                            search_gif_fn=search_tenor_gif,
+                        )
+                        post_reply_to_source(boomer_post, source_message=msg)
                         print("\nWaiting for requests...\n")
                     elif (
                         get_current_persona_mode() != "sam_altman"
