@@ -299,6 +299,9 @@ def set_bot_sleeping(sleeping: bool):
 FLYING_GEEK_USER_ID = "users/111710115907275336708"
 FLYING_GEEK_EMAIL = "trun02052@gmail.com"
 
+ESHANT_USER_ID = "users/106475513799107614379"
+ESHANT_EMAIL = "eshant.sonhar@gmail.com"
+
 
 def is_flying_geek(sender):
     if not sender:
@@ -310,6 +313,19 @@ def is_flying_geek(sender):
         name == FLYING_GEEK_USER_ID.lower()
         or email == FLYING_GEEK_EMAIL.lower()
         or display_name == "flying geek"
+    )
+
+
+def is_eshant(sender):
+    if not sender:
+        return False
+    name = (sender.get("name") or "").lower()
+    email = (sender.get("email") or "").lower()
+    display_name = (sender.get("displayName") or "").lower()
+    return (
+        name == ESHANT_USER_ID.lower()
+        or email == ESHANT_EMAIL.lower()
+        or "eshant" in display_name
     )
 
 
@@ -2005,6 +2021,16 @@ def listen():
                         set_bot_sleeping(True)
                         post_reply_to_source(
                             "bye bye gng 💤 Sonny is shutting off. Say 'Sunny gm' to wake me back up!",
+                            source_message=msg,
+                        )
+                        print("\nWaiting for requests...\n")
+                        continue
+
+                    # Whenever Eshant says something to the bot, reply "silence child"
+                    if is_eshant(sender):
+                        print("\nEshant addressed Sonny! Responding with 'silence child'...")
+                        post_reply_to_source(
+                            "silence child",
                             source_message=msg,
                         )
                         print("\nWaiting for requests...\n")
