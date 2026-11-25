@@ -5,7 +5,9 @@ from types import SimpleNamespace
 from useful_mode import (
     MAX_SEARCH_MESSAGES,
     USEFUL_MODE_TOOLS,
+    parse_semi_useful_request,
     parse_useful_request,
+    run_semi_useful_assistant,
     run_useful_assistant,
     search_chat_messages,
 )
@@ -121,6 +123,33 @@ class UsefulModeTests(unittest.TestCase):
             json.loads(tool_outputs[-1]["output"]),
             {"ok": True, "result": [{"text": "blue design"}]},
         )
+
+    def test_parse_semi_useful_request(self):
+        self.assertEqual(
+            parse_semi_useful_request("Sonny semi-useful, why is the sky blue?"),
+            "why is the sky blue?",
+        )
+        self.assertEqual(
+            parse_semi_useful_request("sonny semi useful tell me about quantum physics"),
+            "tell me about quantum physics",
+        )
+        self.assertEqual(
+            parse_semi_useful_request("@Sonny semi-useful: who invented the wheel?"),
+            "who invented the wheel?",
+        )
+        self.assertIsNone(parse_semi_useful_request("Sonny useful, why is the sky blue?"))
+        # Semi-useful should NOT be captured by normal useful parser
+        self.assertIsNone(parse_useful_request("Sonny semi-useful, why is the sky blue?"))
+        self.assertIsNone(parse_useful_request("Sonny semi useful, why is the sky blue?"))
+
+    def test_run_semi_useful_assistant(self):
+        class FakeResponses:
+            def create(self, **kwargs):
+                return SimpleNamespace(output_text="A farrago of misconceptions, my dear fellow.")
+
+        fake_client = SimpleNamespace(responses=FakeResponses())
+        answer = run_semi_useful_assistant(fake_client, "test-model", "Is water wet?")
+        self.assertEqual(answer, "A farrago of misconceptions, my dear fellow.")
 
 
 if __name__ == "__main__":

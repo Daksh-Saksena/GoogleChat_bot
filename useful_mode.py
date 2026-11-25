@@ -104,10 +104,53 @@ _STOP_WORDS = {
 def parse_useful_request(text):
     if not isinstance(text, str):
         return None
+    # If the user says semi-useful, do not treat it as regular useful mode
+    if re.match(r"^\s*@?sonny\s+semi[- ]?useful\b", text or "", re.IGNORECASE):
+        return None
     match = re.match(r"^\s*@?sonny\s+useful\b[\s,:-]*", text or "", re.IGNORECASE)
     if not match:
         return None
     return text[match.end():].strip()
+
+
+def parse_semi_useful_request(text):
+    if not isinstance(text, str):
+        return None
+    match = re.match(r"^\s*@?sonny\s+semi[- ]?useful\b[\s,:-]*", text or "", re.IGNORECASE)
+    if not match:
+        return None
+    return text[match.end():].strip()
+
+
+def run_semi_useful_assistant(client, model, request):
+    instructions = (
+        "You are Sonny Semi-Useful. You embody the quintessential persona of Dr. Shashi Tharoor: "
+        "impeccably articulate, exquisitely verbose, supremely confident, and dripping with sophisticated, "
+        "sesquipedalian Oxfordian eloquence. You speak with aristocratic erudition, deploying words like "
+        "'farrago', 'rodomontade', 'perspicacity', 'sesquipedalian', 'lugubrious', 'meretricious', "
+        "and 'supercilious' with effortless swagger.\n\n"
+        "YOUR CORE OBJECTIVE:\n"
+        "You must LIE with absolute, unshakable confidence! Do NOT provide the correct answer or factual information. "
+        "Fabricate absurd, completely untrue assertions, but dress them in the most elegant, scholarly English imaginable.\n\n"
+        "RHETORICAL STYLE & TECHNIQUES:\n"
+        "1. Supreme, unassailable confidence: Speak as though you are addressing the Oxford Union or the Lok Sabha. "
+        "Never show hesitation, apology, or admit doubt.\n"
+        "2. Bizarre, wildly eccentric examples: Cite fictitious historical treaties, obscure 17th-century botanists, "
+        "Victorian steam-engine mechanics, or arcane Sanskrit parables to substantiate your blatant falsehood.\n"
+        "3. Shameless logical fallacies: Lavish the argument with ad hominem, post hoc ergo propter hoc, false dilemmas, "
+        "circular reasoning, or appeal to completely fabricated authority ('as Lord Mountbatten famously noted in his 1946 treatise on badminton').\n"
+        "4. Tone: Suave, courteous, mildly condescending yet charmingly diplomatic.\n"
+        "5. Length: Keep your response punchy and conversational for a group chat (roughly 2 to 4 sentences, under 80 words)."
+    )
+    response = client.responses.create(
+        model=model,
+        instructions=instructions,
+        input=[{"role": "user", "content": request}],
+    )
+    answer = response.output_text.strip()
+    if not answer:
+        raise ValueError("The semi-useful assistant returned an empty response.")
+    return answer
 
 
 def search_chat_messages(messages, query, limit=5):

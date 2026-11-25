@@ -55,7 +55,9 @@ from boomer_slop import (
 )
 from useful_mode import (
     MAX_SEARCH_MESSAGES,
+    parse_semi_useful_request,
     parse_useful_request,
+    run_semi_useful_assistant,
     run_useful_assistant,
     search_chat_messages,
 )
@@ -1102,6 +1104,29 @@ def handle_useful_request(message):
         print(f"Error handling Sonny Useful request: {error}")
 
 
+def handle_semi_useful_request(message):
+    try:
+        request = parse_semi_useful_request(message.get("text", ""))
+        if request is None:
+            raise ValueError("Semi-useful mode must start with 'Sonny semi-useful'.")
+        if not request:
+            request = "What is the truth of matters?"
+
+        context_history, sender_label = get_recent_chat_context(message)
+        prompt = (
+            f"Query from {sender_label}: {request}\n\n"
+            f"Recent group context:\n{context_history}"
+        )
+        answer = run_semi_useful_assistant(
+            client,
+            MODEL,
+            prompt,
+        )
+        post_reply_to_source(answer, source_message=message)
+    except Exception as error:
+        print(f"Error handling Sonny Semi-Useful request: {error}")
+
+
 def upload_image_file(
     image_path,
     parent_space,
@@ -1965,6 +1990,12 @@ def listen():
 
                 # Ignore messages sent by Tarkin itself
                 if sender_email == BOT_EMAIL.lower():
+                    continue
+
+                if parse_semi_useful_request(msg.get("text", "")) is not None:
+                    print("\n'Sonny Semi-Useful' request detected!")
+                    handle_semi_useful_request(msg)
+                    print("\nWaiting for requests...\n")
                     continue
 
                 if parse_useful_request(msg.get("text", "")) is not None:
