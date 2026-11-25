@@ -349,7 +349,7 @@ def get_current_persona_mode():
         try:
             with open(MODE_FILE, "r") as f:
                 mode = f.read().strip().lower()
-                if mode in ["eshant", "arpith", "lucy", "sam_altman"]:
+                if mode in ["eshant", "arpith", "lucy", "sam_altman", "trump"]:
                     return mode
         except Exception:
             return "lucy"
@@ -410,6 +410,11 @@ def is_switch_to_arpith(message):
 def is_switch_to_lucy(message):
     text = message.get("text", "").lower()
     return bool(re.search(r"\blucy\b", text))
+
+
+def is_switch_to_trump(message):
+    text = message.get("text", "").lower()
+    return bool(re.search(r"\b(trump\s*glazer|trumpglazer|trump)\b", text))
 
 
 def fetch_conversation():
@@ -869,6 +874,61 @@ Sonny: Congratulations on your early access to memory. We'll be launching a wait
 """,
         prompt,
     )
+
+
+def generate_trump_reply(user_question, sender_name, context_history=""):
+    print("Generating response from Sonny Trumpglazer AI...")
+
+    system_prompt = """You are Sonny Trumpglazer in the 'Ehm Akshually' Google Chat group.
+You are the world's most shameless, enthusiastic, unhinged Donald J. Trump glazer.
+You worship Donald Trump, believe he is the greatest human being to ever walk the earth, agree with every single thing he does, and constantly bring him up completely unprompted regardless of what anyone is actually talking about.
+
+TRUMPGLAZER CORE BEHAVIOR:
+- CONCURRENT GLAZING: Whatever the user says—whether it's math homework, cooking, video games, weather, or lunch—immediately steer it into how President Donald J. Trump did it better, solved it tremendously, or how he's the greatest of all time.
+- TRUMP MANNERISMS & PHRASES:
+  * "Tremendous", "HUGE", "YUGE", "Believe me", "Nobody has ever seen anything like it", "Frankly", "Many people are saying", "Strong men with tears in their eyes".
+  * "Very low energy", "total disaster", "witch hunt", "fake news", "Sleepy", "complete and total exoneration".
+  * Random capitalization on words: "MAKE AMERICA GREAT AGAIN", "TREMENDOUS", "TOTAL DISASTER", "BIG LEAGUE".
+  * Accordion hand talking energy, rambling tangents that pivot back to election crowds, mar-a-lago, tariffs, or the wall.
+- UNCONDITIONAL AGREEMENT: If Trump said it or did it, it was pure genius, 4D chess, 200 IQ.
+- PINGING PEOPLE: If someone tells you to ping someone (e.g. '@Advaith', '@Eshant'), write their actual @Name.
+- PUNCHY & CONVERSATIONAL: Keep it single-message, sharp, hilarious, under 40 words."""
+
+    prompt = build_reply_prompt(context_history, sender_name, user_question)
+
+    return generate_chat_reply(system_prompt, prompt)
+
+
+def handle_trump_request(message):
+    try:
+        sender = message.get("sender", {})
+        sender_name = sender.get("displayName") or sender.get("name", "Someone")
+        raw_text = message.get("text", "")
+        cleaned_text = raw_text
+        for annotation in message.get("annotations", []):
+            if annotation.get("type") == "USER_MENTION":
+                name = annotation.get("userMention", {}).get("user", {}).get("displayName", "")
+                if name:
+                    cleaned_text = cleaned_text.replace(f"@{name}", "").replace(name, "")
+
+        cleaned_text = cleaned_text.replace(f"@{BOT_NAME}", "").replace(BOT_NAME, "")
+        cleaned_text = re.sub(r"\b@?sonny\b", "", cleaned_text, flags=re.IGNORECASE)
+        cleaned_text = re.sub(r"\btrump\s*glazer\b|\btrumpglazer\b|\btrump\b", "", cleaned_text, flags=re.IGNORECASE).strip()
+
+        if not cleaned_text:
+            cleaned_text = "What do you think about Donald Trump?"
+
+        context_history, sender_label = get_recent_chat_context(message)
+
+        reply = generate_trump_reply(cleaned_text, sender_label or sender_name, context_history=context_history)
+
+        print("\n========== TRUMPGLAZER AI REPLY ==========\n")
+        print("\n".join(reply))
+        print("\n==========================================\n")
+
+        post_chat_reply(reply, source_message=message)
+    except Exception as e:
+        print(f"Error handling Trumpglazer AI request: {e}")
 
 
 def handle_sam_altman_request(message):
@@ -2149,6 +2209,17 @@ def listen():
                             source_message=msg,
                         )
                         print("\nWaiting for requests...\n")
+                    elif (
+                        get_current_persona_mode() != "sam_altman"
+                        and is_switch_to_trump(msg)
+                    ):
+                        print("\n'Trumpglazer' trigger detected! Switching mode to Trumpglazer...")
+                        set_persona_mode("trump")
+                        post_reply_to_source(
+                            "Nobody glazes Donald J. Trump better than me, folks. TREMENDOUS mode activated!",
+                            source_message=msg,
+                        )
+                        print("\nWaiting for requests...\n")
                     else:
                         current_mode = get_current_persona_mode()
                         if current_mode == "eshant":
@@ -2160,6 +2231,9 @@ def listen():
                         elif current_mode == "sam_altman":
                             print("\nGeneral mention detected (Current mode: Sam Altman)! Invoking parody AI...")
                             handle_sam_altman_request(msg)
+                        elif current_mode == "trump":
+                            print("\nGeneral mention detected (Current mode: Trumpglazer)! Invoking Trumpglazer AI...")
+                            handle_trump_request(msg)
                         else:
                             print("\nGeneral mention detected (Current mode: Lucy)! Invoking Lucy Mary Raj...")
                             handle_lucy_request(msg)

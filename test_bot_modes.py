@@ -33,6 +33,13 @@ class BotModeTests(unittest.TestCase):
         self.assertTrue(mentions_ram("what did Ram say?"))
         self.assertFalse(mentions_ram("programming is fun"))
 
+    def test_trumpglazer_mode_validation(self):
+        from summarize_chat import is_switch_to_trump
+        self.assertTrue(is_switch_to_trump({"text": "Sonny trumpglazer"}))
+        self.assertTrue(is_switch_to_trump({"text": "trump glazer"}))
+        self.assertTrue(is_switch_to_trump({"text": "@sonny trump"}))
+        self.assertFalse(is_switch_to_trump({"text": "hello how are you"}))
+
 
 if __name__ == "__main__":
     unittest.main()
