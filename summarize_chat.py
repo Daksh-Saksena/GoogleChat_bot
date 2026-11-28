@@ -21,8 +21,10 @@ from google.auth.transport.requests import AuthorizedSession, Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from bot_modes import (
+    DAKSH_REPLY_TEXT,
     SAM_ALTMAN_ACTIVATION_TEXT,
     SAM_ALTMAN_DEACTIVATION_TEXT,
+    is_daksh_reply_user,
     is_sam_altman_deactivation_command,
     is_sam_altman_mode_command,
     mentions_ram,
@@ -301,10 +303,6 @@ def set_bot_sleeping(sleeping: bool):
 FLYING_GEEK_USER_ID = "users/111710115907275336708"
 FLYING_GEEK_EMAIL = "trun02052@gmail.com"
 
-ESHANT_USER_ID = "users/106475513799107614379"
-ESHANT_EMAIL = "eshant.sonhar@gmail.com"
-
-
 def is_flying_geek(sender):
     if not sender:
         return False
@@ -315,19 +313,6 @@ def is_flying_geek(sender):
         name == FLYING_GEEK_USER_ID.lower()
         or email == FLYING_GEEK_EMAIL.lower()
         or display_name == "flying geek"
-    )
-
-
-def is_eshant(sender):
-    if not sender:
-        return False
-    name = (sender.get("name") or "").lower()
-    email = (sender.get("email") or "").lower()
-    display_name = (sender.get("displayName") or "").lower()
-    return (
-        name == ESHANT_USER_ID.lower()
-        or email == ESHANT_EMAIL.lower()
-        or "eshant" in display_name
     )
 
 
@@ -2052,6 +2037,14 @@ def listen():
                 if sender_email == BOT_EMAIL.lower():
                     continue
 
+                if is_daksh_reply_user(sender) and is_bot_mentioned(msg, messages):
+                    post_reply_to_source(
+                        DAKSH_REPLY_TEXT,
+                        source_message=msg,
+                    )
+                    print("\nWaiting for requests...\n")
+                    continue
+
                 if parse_semi_useful_request(msg.get("text", "")) is not None:
                     print("\n'Sonny Semi-Useful' request detected!")
                     handle_semi_useful_request(msg)
@@ -2112,16 +2105,6 @@ def listen():
                         set_bot_sleeping(True)
                         post_reply_to_source(
                             "bye bye gng 💤 Sonny is shutting off. Say 'Sunny gm' to wake me back up!",
-                            source_message=msg,
-                        )
-                        print("\nWaiting for requests...\n")
-                        continue
-
-                    # Whenever Eshant says something to the bot, reply "silence child"
-                    if is_eshant(sender):
-                        print("\nEshant addressed Sonny! Responding with 'silence child'...")
-                        post_reply_to_source(
-                            "silence child",
                             source_message=msg,
                         )
                         print("\nWaiting for requests...\n")

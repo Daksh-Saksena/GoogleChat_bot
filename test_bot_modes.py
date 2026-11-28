@@ -3,6 +3,8 @@ import unittest
 from bot_modes import (
     SAM_ALTMAN_ACTIVATION_TEXT,
     SAM_ALTMAN_DEACTIVATION_TEXT,
+    DAKSH_REPLY_TEXT,
+    is_daksh_reply_user,
     is_sam_altman_deactivation_command,
     is_sam_altman_mode_command,
     mentions_ram,
@@ -13,6 +15,14 @@ class BotModeTests(unittest.TestCase):
     def test_activation_reply_is_exact(self):
         self.assertEqual(SAM_ALTMAN_ACTIVATION_TEXT, "GIMME THE RAM")
         self.assertEqual(SAM_ALTMAN_DEACTIVATION_TEXT, "ram altman disabled")
+
+    def test_daksh_reply_matches_sender_email_case_insensitively(self):
+        self.assertTrue(
+            is_daksh_reply_user({"email": "DakshSaksena2011@gmail.com"})
+        )
+        self.assertFalse(is_daksh_reply_user({"email": "someone@example.com"}))
+        self.assertFalse(is_daksh_reply_user({"name": "users/123"}))
+        self.assertEqual(DAKSH_REPLY_TEXT, "meet me after 3 over there")
 
     def test_sonny_ram_activates_mode_case_insensitively(self):
         self.assertTrue(is_sam_altman_mode_command("Sonny Ram"))
